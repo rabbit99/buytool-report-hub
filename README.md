@@ -185,3 +185,67 @@ py export_pdf.py                          # 匯出所有廠商的報告
    py analyze.py --days 30
 4. 到 out/ 資料夾開啟 天堂交易分析_最新.xlsx
 ```
+
+---
+
+## GitHub Pages 公開部署（MVP）
+
+本專案已提供 release 分支自動部署流程：
+
+1. 當 `release` 分支有新 commit 時，GitHub Actions 會自動執行：
+    - `python ingest.py --all`
+    - `python gen_report.py --all --html`
+    - `python build_pages_site.py`
+2. 產出的站點內容會部署到 GitHub Pages。
+3. 站點打包腳本會同時生成：
+   - `robots.txt`（爬蟲規則）
+   - `sitemap.xml`（搜尋引擎地圖）
+
+### 首次啟用
+
+1. 到 GitHub Repository → Settings → Pages
+2. Build and deployment 選擇 `GitHub Actions`
+3. 確認預設分支中已有 `.github/workflows/deploy-pages.yml`
+4. push 到 `release` 分支後等待 Actions 完成
+
+### Repository Variables（建議設定）
+
+在 GitHub Repository → Settings → Secrets and variables → Actions → Variables 新增：
+
+- `SITE_BASE_URL`：你的網站完整網址（例如 `https://<user>.github.io/<repo>`）
+- `PUBLIC_CONTACT_EMAIL`：公開站務聯絡信箱
+
+若未設定，系統會使用預設值。
+
+### 公開站內容
+
+- 首頁：`index.html`（廠商報告入口）
+- 報告：`/<廠商>/00_總覽.html` 與各分類頁
+- 法務與風險頁：
+   - `/legal/disclaimer.html`
+   - `/legal/privacy.html`
+   - `/legal/risk-disclosure.html`
+
+### 發布節奏
+
+- 以 `release` 分支 commit 為發布節點。
+- 建議流程：
+   1. 在 `master` 完成開發與驗證
+   2. 合併/挑選到 `release`
+   3. push 觸發自動部署
+
+### 一鍵 release npm 指令
+
+```powershell
+# 不用 AI：更新資料後直接推送到 release（觸發 GitHub Pages）
+npm run release:mvp
+
+# 用 AI：更新資料 + AI 分析後推送 release
+npm run release:mvp:ai
+```
+
+策略說明：
+
+- `master`：開發與驗證
+- `release`：對外發布分支
+- npm 指令會把目前分支的 HEAD 推到 `release`（`git push origin HEAD:release`）

@@ -200,6 +200,74 @@ def _format_quote(content, max_len=150):
     return content
 
 
+def _build_numeric_signal_lines(data_points, max_items=5):
+    """將數值提及整理為匿名化信號摘要，不輸出原句。"""
+    unit_values = defaultdict(list)
+    for dp in data_points:
+        for val, unit, _ctx in dp.get('numbers', []):
+            cleaned = re.sub(r'[^0-9.]', '', str(val))
+            if not cleaned:
+                continue
+            try:
+                num = float(cleaned)
+            except ValueError:
+                continue
+            unit_values[unit].append(num)
+
+    lines = []
+    for unit, values in unit_values.items():
+        if not values:
+            continue
+        min_v = min(values)
+        max_v = max(values)
+        if min_v.is_integer() and max_v.is_integer():
+            min_text = str(int(min_v))
+            max_text = str(int(max_v))
+        else:
+            min_text = f'{min_v:.2f}'.rstrip('0').rstrip('.')
+            max_text = f'{max_v:.2f}'.rstrip('0').rstrip('.')
+
+        if min_text == max_text:
+            lines.append(f'- {unit}：提及 {len(values)} 次，代表值約 {min_text}{unit}')
+        else:
+            lines.append(f'- {unit}：提及 {len(values)} 次，區間約 {min_text}~{max_text}{unit}')
+
+    lines.sort()
+    return lines[:max_items]
+
+
+def _build_observation_summary(sub_name, analysis, meaningful_entities):
+    """生成去識別的觀點摘要，避免輸出可追溯原句。"""
+    unique = analysis['unique']
+    speakers = analysis['speakers']
+    question_count = analysis['question_count']
+    declarative_count = max(0, unique - question_count)
+
+    if speakers >= 10:
+        speaker_label = '多數參與者'
+    elif speakers >= 4:
+        speaker_label = '部分參與者'
+    else:
+        speaker_label = '少數參與者'
+
+    lines = [
+        (
+            f'- {speaker_label}在「{sub_name}」議題提供 {declarative_count} 則敘述型訊號，'
+            f'提問型訊號 {question_count} 則，顯示社群以經驗回報為主。'
+        ),
+    ]
+
+    if meaningful_entities:
+        top_entities = '、'.join(entity for entity, _ in meaningful_entities[:3])
+        lines.append(f'- 討論焦點集中在 {top_entities}，屬於此主題下的高頻關鍵面向。')
+
+    numeric_lines = _build_numeric_signal_lines(analysis['data_points'], max_items=2)
+    if numeric_lines:
+        lines.append('- 數值訊號顯示此議題具有可量化討論，可作為後續策略與風險評估依據。')
+
+    return lines
+
+
 # ── 子分類分析 ──────────────────────────────────────────────────
 
 def _analyze_subcategory(sub_name, records):
@@ -226,11 +294,13 @@ def _analyze_subcategory(sub_name, records):
 
     # 關鍵資訊（非問句的實質內容）
     insights = _pick_informative(deduped, max_items=8)
+    question_count = sum(1 for r in deduped if _is_question(r.get('content', '')))
 
     return {
         'total': len(records),
         'unique': len(deduped),
         'speakers': len(speakers),
+        'question_count': question_count,
         'entity_counts': entity_counts,
         'entity_speakers': entity_speakers,
         'data_points': data_points,
@@ -296,47 +366,34 @@ def _generate_category_report(vendor_name, cat_file, cat_title, records, date_ra
 
         # 2. 數值資料（若有）
         if analysis['data_points']:
-            lines.append('### 數據摘錄\n')
-            seen_data = set()
-            for dp in analysis['data_points'][:6]:
-                content = _format_quote(dp['content'], 120)
-                if content[:30] not in seen_data:
-                    seen_data.add(content[:30])
-                    lines.append(f'- {content}')
+            lines.append('### 數據信號摘要\n')
+            signal_lines = _build_numeric_signal_lines(analysis['data_points'])
+            for line in signal_lines:
+                lines.append(line)
             lines.append('')
 
         # 3. 重點資訊（經分析的關鍵判斷）
-        if analysis['insights']:
-            lines.append('### 群友經驗與觀點\n')
-            
-            # 若啟用 AI 分析
-            if analyze and _ANALYZER_AVAILABLE:
-                insight_msgs = [_format_quote(r.get('content', ''), 150) for r in analysis['insights']]
-                result = analyze_messages_batch(
-                    vendor_name, 
-                    cat_title, 
-                    sub,
-                    insight_msgs,
-                    speaker_count=analysis['speakers']
-                )
-                if result['status'] == 'success':
-                    # 输出 AI 分析結果
-                    if result.get('title'):
-                        lines.append(f"**{result['title']}**\n")
-                    if result.get('analysis'):
-                        lines.append(f"{result['analysis']}\n")
-                    if result.get('supplement'):
-                        lines.append(f"*補充：{result['supplement']}*\n")
-                else:
-                    # AI 分析失敗，降級為原始內容
-                    for r in analysis['insights']:
-                        content = _format_quote(r.get('content', ''), 150)
-                        lines.append(f'- {content}')
-            else:
-                # 不用 AI 分析，直接顯示原始內容
-                for r in analysis['insights']:
-                    content = _format_quote(r.get('content', ''), 150)
-                    lines.append(f'- {content}')
+        lines.append('### 群友經驗與觀點\n')
+        for line in _build_observation_summary(sub, analysis, meaningful_entities):
+            lines.append(line)
+
+        if analyze and _ANALYZER_AVAILABLE:
+            ai_prompt_lines = [
+                f'子分類：{sub}',
+                f'不重複訊息：{analysis["unique"]}',
+                f'參與者：{analysis["speakers"]}',
+                f'提問訊號：{analysis["question_count"]}',
+                f'高頻關鍵字：{"、".join(e for e, _ in meaningful_entities[:5]) or "無"}',
+            ]
+            result = analyze_messages_batch(
+                vendor_name,
+                cat_title,
+                sub,
+                ai_prompt_lines,
+                speaker_count=analysis['speakers'],
+            )
+            if result.get('status') == 'success' and result.get('analysis'):
+                lines.append(f'- AI 補充判讀：{result["analysis"]}')
             lines.append('')
 
         # 收集子分類摘要
