@@ -1,0 +1,20 @@
+{
+  "name": "buytool",
+  "version": "1.0.0",
+  "description": "LINE Chat Analysis & Report Generator",
+  "scripts": {
+    "ingest": "python ingest.py --all",
+    "ingest:force": "python ingest.py --all --force",
+    "report": "python gen_report.py --all --html",
+    "report:ai": "python gen_report.py --all --html --analyze",
+    "update": "npm run ingest && npm run report",
+    "update:ai": "npm run ingest && npm run report:ai"
+  },
+  "keywords": [
+    "chat",
+    "analysis",
+    "report"
+  ],
+  "author": "",
+  "license": "MIT"
+}

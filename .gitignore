@@ -9,6 +9,17 @@ __pycache__/
 
 # Output
 out/
+reports/
+spec/
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# Runtime caches
+.mypy_cache/
+.ruff_cache/
 
 # IDE
 .vscode/

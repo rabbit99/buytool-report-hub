@@ -457,6 +457,9 @@ def main():
             print(f'[提示] 已建立 txt/ 資料夾，請將 LINE 聊天匯出 .txt 放入後重新執行。')
             sys.exit(0)
         files = sorted(txt_dir.glob('*.txt'))
+        # 也搜尋子資料夾（多廠商結構）
+        if not files:
+            files = sorted(txt_dir.rglob('*.txt'))
         if not files:
             print('[錯誤] txt/ 資料夾中沒有 .txt 檔案')
             sys.exit(1)

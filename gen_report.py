@@ -1,0 +1,571 @@
+"""從 spec/ JSONL 自動產生 Markdown 報告。
+
+讀取 spec/<vendor>/ 下的 JSONL 分類資料，
+分析、總結後產出結構化的 Markdown 報告到 reports/<vendor>/。
+
+用法：
+    python gen_report.py --vendor 機器熊
+    python gen_report.py --vendor 機器熊 --html
+    python gen_report.py --all --analyze    # 啟用 AI 分析（消耗 Gemini token）
+"""
+
+import re
+import json
+import argparse
+import sys
+from pathlib import Path
+from collections import defaultdict, Counter
+from datetime import datetime
+
+from vendor_config import get_vendor, list_vendors
+
+# 嘗試導入 message_analyzer（若 API key 未設定會失敗，但不中斷）
+try:
+    from message_analyzer import analyze_messages_batch
+    _ANALYZER_AVAILABLE = True
+except Exception as e:
+    _ANALYZER_AVAILABLE = False
+    _ANALYZER_ERROR = str(e)
+
+# ── 分類檔名 & 標題 ────────────────────────────────────────────
+CATEGORIES = [
+    ('01_掛機攻略', '掛機攻略'),
+    ('02_設定教學', '設定教學'),
+    ('03_帳號安全', '帳號安全與封鎖風險'),
+    ('04_Bug排除', 'Bug 排除'),
+    ('05_環境設定', '環境設定'),
+    ('06_買賣交易', '買賣交易資訊'),
+]
+
+
+def _load_jsonl(path):
+    """讀取 JSONL 檔案，回傳 list[dict]。"""
+    records = []
+    if not path.exists():
+        return records
+    with open(path, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return records
+
+
+def _load_meta(spec_dir):
+    """讀取 _meta.json。"""
+    meta_path = spec_dir / '_meta.json'
+    if meta_path.exists():
+        with open(meta_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return None
+
+
+def _date_range_str(records):
+    """從記錄中取得日期範圍字串，如 2026/04/17-04/20。"""
+    dates = sorted(set(r['date'] for r in records if r.get('date')))
+    if not dates:
+        return '未知日期'
+    min_d = dates[0].replace('-', '/')
+    max_d = dates[-1].replace('-', '/')
+    # 簡化顯示：同年則省略年份
+    if min_d[:4] == max_d[:4]:
+        return f"{min_d}-{max_d[5:]}"
+    return f"{min_d}-{max_d}"
+
+
+def _group_by_sub(records):
+    """按 sub（子分類）分組，回傳 {sub: [records]}，按數量降序。"""
+    groups = defaultdict(list)
+    for r in records:
+        groups[r.get('sub', '其他')].append(r)
+    return dict(sorted(groups.items(), key=lambda x: -len(x[1])))
+
+
+def _deduplicate(records):
+    """按 content 前 50 字去重。"""
+    seen = set()
+    unique = []
+    for r in records:
+        key = r.get('content', '')[:50].strip()
+        if key and key not in seen:
+            seen.add(key)
+            unique.append(r)
+    return unique
+
+
+# ── 內容分析工具 ────────────────────────────────────────────────
+
+def _is_question(content):
+    """判斷是否為純提問（非資訊性內容）。"""
+    s = content.strip()
+    if s.endswith('?') or s.endswith('？') or s.endswith('嗎') or s.endswith('呢'):
+        return True
+    q_patterns = [
+        r'^請問', r'^想問', r'^問一下', r'^有人.+嗎',
+        r'^怎麼', r'^如何', r'^要怎麼', r'^可以問',
+        r'^為什麼', r'^是不是', r'^有沒有',
+        r'^誰', r'^哪裡', r'^什麼時',
+        r'怎麼辦$', r'怎辦$',
+    ]
+    for p in q_patterns:
+        if re.search(p, s):
+            return True
+    return False
+
+
+# 數值擷取模式
+_NUM_PATTERNS = [
+    (r'(\d[\d.]*)\s*[萬w]', '萬'),           # X萬
+    (r'(\d[\d.]*)\s*[元塊]', '元'),           # X元
+    (r'(\d[\d.]*)\s*%', '%'),                  # X%
+    (r'(\d[\d.]*)\s*小時', '小時'),            # X小時
+    (r'(\d[\d.]*)\s*[天日]', '天'),            # X天
+    (r'(\d[\d.]*)\s*開', '開'),                # X開
+    (r'(\d[\d.]*)\s*等', '等'),                # X等
+    (r'(\d[\d.]*)\s*次', '次'),                # X次
+    (r'(\d[\d.]*)\s*罐', '罐'),               # X罐
+    (r'(\d[\d.]*)\s*隻', '隻'),               # X隻
+    (r'AC\s*(\d+)', 'AC'),                     # ACxx
+]
+
+
+def _extract_numbers(content):
+    """從內容擷取數值資料點。回傳 [(數值, 單位, 上下文片段)]"""
+    results = []
+    for pat, unit in _NUM_PATTERNS:
+        for m in re.finditer(pat, content, re.IGNORECASE):
+            val = m.group(1)
+            # 擷取數值前後的上下文
+            start = max(0, m.start() - 10)
+            end = min(len(content), m.end() + 10)
+            ctx = content[start:end].strip()
+            results.append((val, unit, ctx))
+    return results
+
+
+def _extract_keyword_entities(records):
+    """從記錄的 keywords 欄位統計實體出現頻率。"""
+    entity_counts = Counter()
+    entity_speakers = defaultdict(set)
+    entity_records = defaultdict(list)
+    for r in records:
+        kws = [k.strip() for k in r.get('keywords', '').split(',') if k.strip()]
+        nickname = r.get('nickname', '')
+        for kw in kws:
+            # 跳過正則模式的 keyword
+            if any(c in kw for c in r'[]+*?{}|()\\'):
+                continue
+            entity_counts[kw] += 1
+            if nickname:
+                entity_speakers[kw].add(nickname)
+            entity_records[kw].append(r)
+    return entity_counts, entity_speakers, entity_records
+
+
+def _pick_informative(records, max_items=5):
+    """挑選資訊性內容（非問句、有實質資訊、優先高可靠來源）。"""
+    candidates = []
+    for r in records:
+        content = r.get('content', '').strip()
+        if not content or len(content) < 8:
+            continue
+        if _is_question(content):
+            continue
+        candidates.append(r)
+
+    candidates.sort(
+        key=lambda r: (-r.get('priority', 5), -len(r.get('content', ''))),
+    )
+    # 去重
+    seen = set()
+    unique = []
+    for r in candidates:
+        key = r['content'][:40]
+        if key not in seen:
+            seen.add(key)
+            unique.append(r)
+    return unique[:max_items]
+
+
+def _format_quote(content, max_len=150):
+    """截斷過長內容。"""
+    content = content.strip().replace('\n', ' ')
+    if len(content) > max_len:
+        return content[:max_len] + '…'
+    return content
+
+
+# ── 子分類分析 ──────────────────────────────────────────────────
+
+def _analyze_subcategory(sub_name, records):
+    """分析一個子分類的所有記錄，產生結構化分析結果。"""
+    deduped = _deduplicate(records)
+    speakers = set(r.get('nickname', '') for r in deduped if r.get('nickname'))
+
+    # 實體頻率
+    entity_counts, entity_speakers, entity_records = _extract_keyword_entities(deduped)
+
+    # 數值資料點
+    data_points = []
+    for r in deduped:
+        nums = _extract_numbers(r.get('content', ''))
+        if nums:
+            data_points.append({
+                'content': r['content'],
+                'numbers': nums,
+                'nickname': r.get('nickname', ''),
+                'priority': r.get('priority', 5),
+            })
+    # 按優先級排序
+    data_points.sort(key=lambda x: -x['priority'])
+
+    # 關鍵資訊（非問句的實質內容）
+    insights = _pick_informative(deduped, max_items=8)
+
+    return {
+        'total': len(records),
+        'unique': len(deduped),
+        'speakers': len(speakers),
+        'entity_counts': entity_counts,
+        'entity_speakers': entity_speakers,
+        'data_points': data_points,
+        'insights': insights,
+    }
+
+
+# ── 報告產生器 ──────────────────────────────────────────────────
+
+def _generate_category_report(vendor_name, cat_file, cat_title, records, date_range, analyze=False):
+    """產生單一分類的 Markdown 報告（分析總結式）。
+    
+    Args:
+        analyze: 若 True，使用 Gemini AI 分析群友經驗與觀點（消耗 token）
+    """
+    grouped = _group_by_sub(records)
+    total = len(records)
+    all_speakers = set(r.get('nickname', '') for r in records if r.get('nickname'))
+
+    lines = []
+    lines.append(f'# {vendor_name} — {cat_title}整理\n')
+    lines.append(f'> 資料來源：LINE 群組（{date_range}）｜自動產生於 {datetime.now().strftime("%Y/%m/%d %H:%M")}')
+    lines.append(f'> 分析基礎：{total} 則訊息、{len(all_speakers)} 位發言者\n')
+    lines.append('---\n')
+
+    # 摘要表格
+    lines.append('## 討論熱度\n')
+    lines.append('| 子分類 | 討論量 | 發言者 | 佔比 |')
+    lines.append('|--------|--------|--------|------|')
+    for sub, recs in grouped.items():
+        pct = len(recs) / total * 100 if total else 0
+        spk = len(set(r.get('nickname', '') for r in recs if r.get('nickname')))
+        lines.append(f'| {sub} | {len(recs)} 則 | {spk} 人 | {pct:.0f}% |')
+    lines.append('')
+
+    # 各子分類分析
+    section_num = 1
+    chinese_nums = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十']
+    sub_summaries = []  # 收集每個子分類的摘要供總結用
+
+    for sub, recs in grouped.items():
+        cn = chinese_nums[section_num - 1] if section_num <= len(chinese_nums) else str(section_num)
+        lines.append(f'---\n')
+        lines.append(f'## {cn}、{sub}\n')
+
+        analysis = _analyze_subcategory(sub, recs)
+
+        # 1. 熱門實體表格（若有明確實體）
+        top_entities = analysis['entity_counts'].most_common(10)
+        # 過濾掉太泛化的關鍵字（只保留具體實體）
+        meaningful_entities = [
+            (e, c) for e, c in top_entities
+            if len(e) >= 2 and c >= 2
+        ]
+        if meaningful_entities:
+            lines.append('### 熱門關鍵字\n')
+            lines.append('| 關鍵字 | 提及次數 | 討論人數 |')
+            lines.append('|--------|----------|----------|')
+            for entity, count in meaningful_entities[:8]:
+                spk_count = len(analysis['entity_speakers'].get(entity, set()))
+                lines.append(f'| {entity} | {count} | {spk_count} |')
+            lines.append('')
+
+        # 2. 數值資料（若有）
+        if analysis['data_points']:
+            lines.append('### 數據摘錄\n')
+            seen_data = set()
+            for dp in analysis['data_points'][:6]:
+                content = _format_quote(dp['content'], 120)
+                if content[:30] not in seen_data:
+                    seen_data.add(content[:30])
+                    lines.append(f'- {content}')
+            lines.append('')
+
+        # 3. 重點資訊（經分析的關鍵判斷）
+        if analysis['insights']:
+            lines.append('### 群友經驗與觀點\n')
+            
+            # 若啟用 AI 分析
+            if analyze and _ANALYZER_AVAILABLE:
+                insight_msgs = [_format_quote(r.get('content', ''), 150) for r in analysis['insights']]
+                result = analyze_messages_batch(
+                    vendor_name, 
+                    cat_title, 
+                    sub,
+                    insight_msgs,
+                    speaker_count=analysis['speakers']
+                )
+                if result['status'] == 'success':
+                    # 输出 AI 分析結果
+                    if result.get('title'):
+                        lines.append(f"**{result['title']}**\n")
+                    if result.get('analysis'):
+                        lines.append(f"{result['analysis']}\n")
+                    if result.get('supplement'):
+                        lines.append(f"*補充：{result['supplement']}*\n")
+                else:
+                    # AI 分析失敗，降級為原始內容
+                    for r in analysis['insights']:
+                        content = _format_quote(r.get('content', ''), 150)
+                        lines.append(f'- {content}')
+            else:
+                # 不用 AI 分析，直接顯示原始內容
+                for r in analysis['insights']:
+                    content = _format_quote(r.get('content', ''), 150)
+                    lines.append(f'- {content}')
+            lines.append('')
+
+        # 收集子分類摘要
+        sub_summary = f'**{sub}**：{analysis["unique"]} 則不重複討論、{analysis["speakers"]} 人參與'
+        if meaningful_entities:
+            top3 = '、'.join(e for e, _ in meaningful_entities[:3])
+            sub_summary += f'，熱門：{top3}'
+        sub_summaries.append(sub_summary)
+
+        section_num += 1
+
+    # ── 總體總結 ──
+    lines.append('---\n')
+    lines.append(f'## 總體總結\n')
+
+    # 各子分類概況
+    lines.append('### 各面向概況\n')
+    for s in sub_summaries:
+        lines.append(f'- {s}')
+    lines.append('')
+
+    # 整體判斷
+    lines.append('### 整體判斷\n')
+    top_sub = list(grouped.keys())[0] if grouped else ''
+    top_count = len(list(grouped.values())[0]) if grouped else 0
+    top_pct = top_count / total * 100 if total else 0
+    lines.append(
+        f'- 本分類共 **{total} 則**訊息、**{len(all_speakers)}** 位參與者，'
+        f'最熱門子題為「{top_sub}」（佔 {top_pct:.0f}%）'
+    )
+
+    # 日期分佈
+    date_counts = Counter(r.get('date', '') for r in records if r.get('date'))
+    if len(date_counts) > 1:
+        peak_date, peak_count = date_counts.most_common(1)[0]
+        lines.append(f'- 討論高峰：{peak_date}（{peak_count} 則）')
+
+    # 來源分佈
+    src_counts = Counter(r.get('src', '') for r in records)
+    if len(src_counts) > 1:
+        src_parts = '、'.join(f'{s}({c}則)' for s, c in src_counts.most_common())
+        lines.append(f'- 來源分佈：{src_parts}')
+
+    lines.append('')
+
+    return '\n'.join(lines)
+
+
+def generate_reports(vendor_name, html=False, analyze=False):
+    """產生一個廠商的所有報告。
+    
+    Args:
+        analyze: 若 True，使用 Gemini AI 分析群友經驗與觀點（消耗 token）
+    """
+    vendor_cfg = get_vendor(vendor_name)
+    spec_dir = vendor_cfg['spec_dir']
+    report_dir = vendor_cfg['report_dir']
+    report_dir.mkdir(parents=True, exist_ok=True)
+
+    if not spec_dir.exists():
+        print(f'  錯誤：找不到 {spec_dir}，請先執行 ingest.py')
+        return
+
+    meta = _load_meta(spec_dir)
+    generated = 0
+
+    for cat_file, cat_title in CATEGORIES:
+        jsonl_path = spec_dir / f'{cat_file}.jsonl'
+        records = _load_jsonl(jsonl_path)
+        if not records:
+            print(f'  {cat_file}：無資料，跳過')
+            continue
+
+        date_range = _date_range_str(records)
+        md_content = _generate_category_report(
+            vendor_cfg['name'], cat_file, cat_title, records, date_range, analyze=analyze,
+        )
+
+        # 寫入 Markdown
+        md_path = report_dir / f'{cat_file}.md'
+        with open(md_path, 'w', encoding='utf-8') as f:
+            f.write(md_content)
+        print(f'  ✓ {md_path.name}（{len(records)} 則）')
+        generated += 1
+
+        # 寫入 HTML
+        if html:
+            try:
+                import markdown
+                html_content = _wrap_html(
+                    markdown.markdown(md_content, extensions=['tables']),
+                    f'{vendor_cfg["name"]} — {cat_title}',
+                )
+                html_path = report_dir / f'{cat_file}.html'
+                with open(html_path, 'w', encoding='utf-8') as f:
+                    f.write(html_content)
+                print(f'    + {html_path.name}')
+            except ImportError:
+                print('    ⚠ 需要 markdown 套件才能產生 HTML：pip install markdown')
+
+    # 產生總覽摘要
+    _generate_overview(vendor_cfg, spec_dir, report_dir)
+
+    print(f'  ── 共產生 {generated} 份報告')
+
+
+def _generate_overview(vendor_cfg, spec_dir, report_dir):
+    """產生總覽摘要 00_總覽.md。"""
+    meta = _load_meta(spec_dir)
+    sources_cfg = vendor_cfg.get('sources', {})
+    lines = []
+    lines.append(f'# {vendor_cfg["name"]} — 分析總覽\n')
+    lines.append(f'> 群組：{vendor_cfg["full_name"]}')
+    lines.append(f'> 自動產生於 {datetime.now().strftime("%Y/%m/%d %H:%M")}\n')
+
+    if meta:
+        lines.append('## 資料涵蓋範圍\n')
+        lines.append('| 消化記錄 | 標籤 | 優先級 | 日期範圍 | 訊息數 | 消化時間 |')
+        lines.append('|----------|------|--------|----------|--------|----------|')
+        for r in meta.get('ingested_ranges', []):
+            fname = r['file']
+            src = sources_cfg.get(fname, {})
+            label = src.get('label', '—')
+            pri = src.get('priority', 5)
+            lines.append(
+                f'| {fname} | {label} | {pri} '
+                f'| {r["min_date"]} ~ {r["max_date"]} '
+                f'| {r["msg_count"]} | {r["ingested_at"][:16]} |'
+            )
+        lines.append(f'\n**累計 spec 記錄：{meta.get("total_messages", 0)} 則**\n')
+
+    # 各分類統計
+    lines.append('## 各分類統計\n')
+    lines.append('| 分類 | 訊息數 | 報告連結 |')
+    lines.append('|------|--------|----------|')
+    for cat_file, cat_title in CATEGORIES:
+        jsonl_path = spec_dir / f'{cat_file}.jsonl'
+        records = _load_jsonl(jsonl_path)
+        count = len(records)
+        link = f'[{cat_file}.md]({cat_file}.md)' if count > 0 else '—'
+        lines.append(f'| {cat_title} | {count} | {link} |')
+    lines.append('')
+
+    md_path = report_dir / '00_總覽.md'
+    with open(md_path, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(lines))
+    print(f'  ✓ {md_path.name}（總覽）')
+
+
+def _wrap_html(body_html, title):
+    """包裝 HTML 內容。"""
+    return f"""<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<title>{title}</title>
+<style>
+body {{ font-family: "Microsoft JhengHei", sans-serif; max-width: 900px; margin: 2em auto; padding: 0 1em; line-height: 1.8; }}
+h1 {{ border-bottom: 2px solid #333; padding-bottom: 0.3em; }}
+h2 {{ color: #2c3e50; margin-top: 1.5em; }}
+h3 {{ color: #34495e; }}
+table {{ border-collapse: collapse; width: 100%; margin: 1em 0; }}
+th, td {{ border: 1px solid #ddd; padding: 8px 12px; text-align: left; }}
+th {{ background: #4472C4; color: white; }}
+tr:nth-child(even) {{ background: #f9f9f9; }}
+blockquote {{ border-left: 4px solid #4472C4; margin: 1em 0; padding: 0.5em 1em; background: #f0f4f8; }}
+code {{ background: #f0f0f0; padding: 2px 6px; border-radius: 3px; }}
+ul {{ padding-left: 1.5em; }}
+li {{ margin-bottom: 0.3em; }}
+</style>
+</head>
+<body>
+{body_html}
+</body>
+</html>"""
+
+
+# ── CLI ─────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='從 spec/ JSONL 自動產生 Markdown 報告',
+    )
+    parser.add_argument(
+        '--vendor', '-v',
+        type=str,
+        default=None,
+        help=f'指定廠商（可用：{", ".join(list_vendors())}）',
+    )
+    parser.add_argument(
+        '--html',
+        action='store_true',
+        help='同時產生 HTML 報告',
+    )
+    parser.add_argument(
+        '--all',
+        action='store_true',
+        help='產生所有廠商的報告',
+    )
+    parser.add_argument(
+        '--analyze',
+        action='store_true',
+        help='使用 Gemini AI 分析群友經驗與觀點（需要 GEMINI_API_KEY，消耗 token）',
+    )
+
+    args = parser.parse_args()
+
+    if args.analyze and not _ANALYZER_AVAILABLE:
+        print('⚠ 警告：AI 分析不可用')
+        if _ANALYZER_ERROR:
+            print(f'  錯誤：{_ANALYZER_ERROR}')
+        print('  跳過 --analyze 選項')
+        print()
+
+    if args.all:
+        print('=== 產生所有廠商報告 ===\n')
+        for vname in list_vendors():
+            print(f'【{vname}】')
+            generate_reports(vname, html=args.html, analyze=args.analyze and _ANALYZER_AVAILABLE)
+            print()
+        return
+
+    if not args.vendor:
+        print('錯誤：請指定 --vendor 或 --all')
+        parser.print_help()
+        sys.exit(1)
+
+    print(f'【{args.vendor}】')
+    generate_reports(args.vendor, html=args.html, analyze=args.analyze and _ANALYZER_AVAILABLE)
+
+
+if __name__ == '__main__':
+    main()
