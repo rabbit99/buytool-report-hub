@@ -1,9 +1,7 @@
 name: Deploy Reports To GitHub Pages
 
 on:
-  push:
-    branches:
-      - release
+  workflow_dispatch:
 
 permissions:
   contents: read
