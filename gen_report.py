@@ -11,6 +11,7 @@
 
 import re
 import json
+import html as html_lib
 import argparse
 import sys
 from pathlib import Path
@@ -437,15 +438,16 @@ def generate_reports(vendor_name, html=False, analyze=False):
                 print('    ⚠ 需要 markdown 套件才能產生 HTML：pip install markdown')
 
     # 產生總覽摘要
-    _generate_overview(vendor_cfg, spec_dir, report_dir)
+    _generate_overview(vendor_cfg, spec_dir, report_dir, html=html)
 
     print(f'  ── 共產生 {generated} 份報告')
 
 
-def _generate_overview(vendor_cfg, spec_dir, report_dir):
+def _generate_overview(vendor_cfg, spec_dir, report_dir, html=False):
     """產生總覽摘要 00_總覽.md。"""
     meta = _load_meta(spec_dir)
     sources_cfg = vendor_cfg.get('sources', {})
+    category_stats = []
     lines = []
     lines.append(f'# {vendor_cfg["name"]} — 分析總覽\n')
     lines.append(f'> 群組：{vendor_cfg["full_name"]}')
@@ -475,14 +477,234 @@ def _generate_overview(vendor_cfg, spec_dir, report_dir):
         jsonl_path = spec_dir / f'{cat_file}.jsonl'
         records = _load_jsonl(jsonl_path)
         count = len(records)
+        speakers = len(set(r.get('nickname', '') for r in records if r.get('nickname')))
         link = f'[{cat_file}.md]({cat_file}.md)' if count > 0 else '—'
         lines.append(f'| {cat_title} | {count} | {link} |')
+        category_stats.append({
+            'file': cat_file,
+            'title': cat_title,
+            'count': count,
+            'speakers': speakers,
+        })
     lines.append('')
 
     md_path = report_dir / '00_總覽.md'
     with open(md_path, 'w', encoding='utf-8') as f:
         f.write('\n'.join(lines))
     print(f'  ✓ {md_path.name}（總覽）')
+    if html:
+        _generate_overview_dashboard_html(vendor_cfg, report_dir, meta, category_stats, sources_cfg)
+
+
+def _generate_overview_dashboard_html(vendor_cfg, report_dir, meta, category_stats, sources_cfg):
+    """產生儀表板風格的總覽 HTML。"""
+    generated_at = datetime.now().strftime("%Y/%m/%d %H:%M")
+    total_categories = len([c for c in category_stats if c['count'] > 0])
+    total_messages = sum(c['count'] for c in category_stats)
+    total_speakers = sum(c['speakers'] for c in category_stats)
+
+    top_category = max(category_stats, key=lambda c: c['count'], default=None)
+    top_label = top_category['title'] if top_category and top_category['count'] > 0 else '—'
+
+    cards_html = (
+        f"<div class='kpi-card'><span class='kpi-label'>累計訊息</span><strong>{total_messages:,}</strong></div>"
+        f"<div class='kpi-card'><span class='kpi-label'>分類覆蓋</span><strong>{total_categories} / {len(CATEGORIES)}</strong></div>"
+        f"<div class='kpi-card'><span class='kpi-label'>參與者估計</span><strong>{total_speakers:,}</strong></div>"
+        f"<div class='kpi-card'><span class='kpi-label'>最熱分類</span><strong>{html_lib.escape(top_label)}</strong></div>"
+    )
+
+    nav_buttons = []
+    for cat in category_stats:
+        disabled = " is-disabled" if cat['count'] == 0 else ""
+        href = f"{cat['file']}.html" if cat['count'] > 0 else "#"
+        nav_buttons.append(
+            "<a class='nav-btn{disabled}' href='{href}'>{title}<span>{count} 則</span></a>".format(
+                disabled=disabled,
+                href=href,
+                title=html_lib.escape(cat['title']),
+                count=cat['count'],
+            ),
+        )
+
+    source_rows = []
+    for r in meta.get('ingested_ranges', []) if meta else []:
+        fname = html_lib.escape(r['file'])
+        src = sources_cfg.get(r['file'], {})
+        label = html_lib.escape(src.get('label', '—'))
+        pri = src.get('priority', 5)
+        date_range = f"{r['min_date']} ~ {r['max_date']}"
+        source_rows.append(
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>".format(
+                fname,
+                label,
+                pri,
+                html_lib.escape(date_range),
+                r['msg_count'],
+            ),
+        )
+    if not source_rows:
+        source_rows.append("<tr><td colspan='5'>尚無來源資料</td></tr>")
+
+    category_rows = []
+    for cat in category_stats:
+        link = f"<a href='{cat['file']}.html'>開啟報告</a>" if cat['count'] > 0 else "—"
+        category_rows.append(
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>".format(
+                html_lib.escape(cat['title']),
+                cat['count'],
+                cat['speakers'],
+                link,
+            ),
+        )
+
+    html_content = f"""<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{html_lib.escape(vendor_cfg['name'])} — 儀表板總覽</title>
+<style>
+:root {{
+    --bg: #f4f8fa;
+    --panel: #ffffff;
+    --brand: #1f7a6c;
+    --brand-2: #1e5f88;
+    --line: #d7e3e8;
+    --text: #1a2b34;
+    --muted: #58717c;
+    --shadow: 0 14px 28px rgba(19, 48, 58, 0.1);
+}}
+* {{ box-sizing: border-box; }}
+body {{
+    margin: 0;
+    font-family: "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+    color: var(--text);
+    background:
+        radial-gradient(circle at 8% 8%, #d9ede8 0%, transparent 40%),
+        radial-gradient(circle at 92% 5%, #d7e6f3 0%, transparent 38%),
+        var(--bg);
+    padding: 22px 14px 30px;
+}}
+.shell {{
+    max-width: 1180px;
+    margin: 0 auto;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+}}
+.hero {{
+    padding: 20px 24px;
+    background: linear-gradient(120deg, var(--brand), var(--brand-2));
+    color: #fff;
+}}
+.hero h1 {{ margin: 0 0 4px; font-size: 1.75rem; }}
+.hero p {{ margin: 0; opacity: 0.92; }}
+.content {{ padding: 18px 20px 26px; }}
+.kpi-grid {{
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 14px;
+}}
+.kpi-card {{
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #f8fcfd;
+    padding: 10px 12px;
+}}
+.kpi-label {{ display: block; font-size: 0.82rem; color: var(--muted); margin-bottom: 2px; }}
+.kpi-card strong {{ font-size: 1.2rem; }}
+.panel {{
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 12px;
+    background: #fff;
+}}
+.panel h2 {{ margin: 0 0 10px; font-size: 1.08rem; color: #1b4b5a; }}
+.nav-grid {{
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+}}
+.nav-btn {{
+    display: block;
+    text-decoration: none;
+    color: #173b43;
+    background: #eef5f8;
+    border: 1px solid #d2e0e7;
+    border-radius: 10px;
+    padding: 10px;
+    font-weight: 700;
+}}
+.nav-btn span {{
+    display: block;
+    margin-top: 4px;
+    font-size: 0.82rem;
+    color: var(--muted);
+    font-weight: 500;
+}}
+.nav-btn:hover {{ background: #e4f0f5; }}
+.nav-btn.is-disabled {{ pointer-events: none; opacity: 0.56; }}
+table {{ width: 100%; border-collapse: collapse; }}
+th, td {{ border-bottom: 1px solid #e8eef1; padding: 8px 7px; text-align: left; font-size: 0.94rem; }}
+th {{ color: #244854; font-weight: 700; background: #f2f8fb; }}
+tr:last-child td {{ border-bottom: 0; }}
+@media (max-width: 900px) {{
+    .kpi-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+    .nav-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+}}
+@media (max-width: 560px) {{
+    .hero h1 {{ font-size: 1.34rem; }}
+    .kpi-grid {{ grid-template-columns: 1fr; }}
+    .nav-grid {{ grid-template-columns: 1fr; }}
+}}
+</style>
+</head>
+<body>
+<main class="shell">
+    <header class="hero">
+        <h1>{html_lib.escape(vendor_cfg['name'])} 報告儀表板</h1>
+        <p>{html_lib.escape(vendor_cfg['full_name'])} ｜ 更新時間 {generated_at}</p>
+    </header>
+    <section class="content">
+        <div class="kpi-grid">{cards_html}</div>
+
+        <section class="panel">
+            <h2>分類導覽</h2>
+            <div class="nav-grid">{''.join(nav_buttons)}</div>
+        </section>
+
+        <section class="panel">
+            <h2>來源覆蓋</h2>
+            <table>
+                <thead>
+                    <tr><th>資料檔案</th><th>標籤</th><th>優先級</th><th>日期範圍</th><th>訊息數</th></tr>
+                </thead>
+                <tbody>{''.join(source_rows)}</tbody>
+            </table>
+        </section>
+
+        <section class="panel">
+            <h2>分類統計</h2>
+            <table>
+                <thead>
+                    <tr><th>分類</th><th>訊息數</th><th>參與者</th><th>連結</th></tr>
+                </thead>
+                <tbody>{''.join(category_rows)}</tbody>
+            </table>
+        </section>
+    </section>
+</main>
+</body>
+</html>"""
+
+    html_path = report_dir / '00_總覽.html'
+    with open(html_path, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+    print(f'  ✓ {html_path.name}（儀表板）')
 
 
 def _wrap_html(body_html, title):
