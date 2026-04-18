@@ -491,24 +491,176 @@ def _wrap_html(body_html, title):
 <html lang="zh-TW">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
 <style>
-body {{ font-family: "Microsoft JhengHei", sans-serif; max-width: 900px; margin: 2em auto; padding: 0 1em; line-height: 1.8; }}
-h1 {{ border-bottom: 2px solid #333; padding-bottom: 0.3em; }}
-h2 {{ color: #2c3e50; margin-top: 1.5em; }}
-h3 {{ color: #34495e; }}
-table {{ border-collapse: collapse; width: 100%; margin: 1em 0; }}
-th, td {{ border: 1px solid #ddd; padding: 8px 12px; text-align: left; }}
-th {{ background: #4472C4; color: white; }}
-tr:nth-child(even) {{ background: #f9f9f9; }}
-blockquote {{ border-left: 4px solid #4472C4; margin: 1em 0; padding: 0.5em 1em; background: #f0f4f8; }}
-code {{ background: #f0f0f0; padding: 2px 6px; border-radius: 3px; }}
-ul {{ padding-left: 1.5em; }}
-li {{ margin-bottom: 0.3em; }}
+:root {{
+    --bg-main: #f3f6f8;
+    --bg-panel: #ffffff;
+    --bg-soft: #eef3f1;
+    --line: #d7e0dd;
+    --text-main: #1f2a2e;
+    --text-sub: #4d6168;
+    --brand: #2a7f6f;
+    --brand-2: #1f5e86;
+    --brand-soft: #d8ece8;
+    --warn-soft: #fff4dd;
+    --radius-lg: 16px;
+    --radius-md: 10px;
+    --shadow: 0 12px 30px rgba(20, 45, 51, 0.08);
+}}
+
+* {{ box-sizing: border-box; }}
+
+body {{
+    margin: 0;
+    color: var(--text-main);
+    font-family: "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+    line-height: 1.75;
+    background:
+        radial-gradient(circle at 10% 10%, #dbeee8 0%, transparent 45%),
+        radial-gradient(circle at 90% 8%, #dceaf4 0%, transparent 42%),
+        linear-gradient(180deg, #f7fafb 0%, var(--bg-main) 100%);
+    padding: 28px 16px 40px;
+}}
+
+.page {{
+    max-width: 1080px;
+    margin: 0 auto;
+    background: var(--bg-panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+}}
+
+.report-body {{
+    padding: 20px 26px 30px;
+}}
+
+h1 {{
+    margin: -20px -26px 20px;
+    padding: 22px 26px 20px;
+    font-size: 1.9rem;
+    letter-spacing: 0.02em;
+    color: #ffffff;
+    background: linear-gradient(120deg, var(--brand) 0%, var(--brand-2) 90%);
+}}
+
+h2 {{
+    margin-top: 1.4em;
+    margin-bottom: 0.55em;
+    padding: 8px 12px;
+    font-size: 1.24rem;
+    color: #173a41;
+    border-left: 5px solid var(--brand);
+    background: var(--bg-soft);
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}}
+
+h3 {{
+    margin-top: 1.1em;
+    margin-bottom: 0.4em;
+    color: #21515a;
+    font-size: 1.06rem;
+}}
+
+hr {{
+    border: 0;
+    border-top: 1px solid var(--line);
+    margin: 20px 0;
+}}
+
+table {{
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    margin: 0.7em 0 1.05em;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+}}
+
+th, td {{
+    border-bottom: 1px solid #e7eeeb;
+    padding: 9px 12px;
+    text-align: left;
+    vertical-align: top;
+}}
+
+th {{
+    font-weight: 700;
+    color: #f7fffd;
+    background: linear-gradient(120deg, #267b6e 0%, #246286 90%);
+}}
+
+tr:last-child td {{
+    border-bottom: 0;
+}}
+
+tr:nth-child(even) {{
+    background: #fafdfc;
+}}
+
+blockquote {{
+    margin: 0.95em 0;
+    padding: 0.75em 1em;
+    border-left: 4px solid #d4aa3a;
+    border-radius: 8px;
+    color: #5f4e22;
+    background: var(--warn-soft);
+}}
+
+ul {{
+    margin-top: 0.35em;
+    padding-left: 1.15em;
+}}
+
+li {{
+    margin-bottom: 0.34em;
+}}
+
+code {{
+    font-family: Consolas, "Courier New", monospace;
+    background: #eef3f8;
+    border: 1px solid #dde5ee;
+    border-radius: 6px;
+    padding: 0.1em 0.42em;
+}}
+
+p {{
+    margin-top: 0.45em;
+    margin-bottom: 0.7em;
+}}
+
+@media (max-width: 820px) {{
+    .report-body {{
+        padding: 16px 14px 22px;
+    }}
+
+    h1 {{
+        margin: -16px -14px 16px;
+        padding: 16px 14px;
+        font-size: 1.45rem;
+    }}
+
+    h2 {{
+        font-size: 1.08rem;
+    }}
+
+    th, td {{
+        padding: 8px 8px;
+        font-size: 0.92rem;
+    }}
+}}
 </style>
 </head>
 <body>
+<main class="page">
+    <article class="report-body">
 {body_html}
+    </article>
+</main>
 </body>
 </html>"""
 

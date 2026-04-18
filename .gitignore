@@ -9,8 +9,8 @@ __pycache__/
 
 # Output
 out/
-reports/
-spec/
+/reports/
+/spec/
 
 # Local secrets
 .env
