@@ -1,5 +1,15 @@
 # BuyTool UI Version History
 
+## v0.4.1-dashboard-navigation-timeline (2026-04-18)
+
+Scope:
+- Added cross-vendor switch buttons on dashboard overview pages.
+- Added recent update timeline module based on ingest metadata.
+- Kept KPI cards and category navigation as primary dashboard controls.
+
+Notes:
+- Dashboard home is now easier to browse across vendors and update windows.
+
 ## v0.4.0-ui-dashboard-overview (2026-04-18)
 
 Scope:

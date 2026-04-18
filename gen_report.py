@@ -513,6 +513,19 @@ def _generate_overview_dashboard_html(vendor_cfg, report_dir, meta, category_sta
         f"<div class='kpi-card'><span class='kpi-label'>最熱分類</span><strong>{html_lib.escape(top_label)}</strong></div>"
     )
 
+    switch_buttons = []
+    for vname in list_vendors():
+        vcfg = get_vendor(vname)
+        active = " is-active" if vname == vendor_cfg['name'] else ""
+        href = f"../{vname}/00_總覽.html"
+        switch_buttons.append(
+            "<a class='vendor-btn{active}' href='{href}'>{name}</a>".format(
+                active=active,
+                href=href,
+                name=html_lib.escape(vname),
+            ),
+        )
+
     nav_buttons = []
     for cat in category_stats:
         disabled = " is-disabled" if cat['count'] == 0 else ""
@@ -526,8 +539,25 @@ def _generate_overview_dashboard_html(vendor_cfg, report_dir, meta, category_sta
             ),
         )
 
-    source_rows = []
+    unique_ranges = {}
     for r in meta.get('ingested_ranges', []) if meta else []:
+        file_name = str(r.get('file', '')).strip()
+        min_date = str(r.get('min_date', '')).strip()
+        max_date = str(r.get('max_date', '')).strip()
+        msg_count = str(r.get('msg_count', '')).strip()
+        key = (
+            file_name,
+            min_date,
+            max_date,
+            msg_count,
+        )
+        current = unique_ranges.get(key)
+        if not current or r.get('ingested_at', '') > current.get('ingested_at', ''):
+            unique_ranges[key] = r
+    deduped_ranges = list(unique_ranges.values())
+
+    source_rows = []
+    for r in deduped_ranges:
         fname = html_lib.escape(r['file'])
         src = sources_cfg.get(r['file'], {})
         label = html_lib.escape(src.get('label', '—'))
@@ -544,6 +574,28 @@ def _generate_overview_dashboard_html(vendor_cfg, report_dir, meta, category_sta
         )
     if not source_rows:
         source_rows.append("<tr><td colspan='5'>尚無來源資料</td></tr>")
+
+    timeline_items = []
+    ranges_sorted = sorted(
+        deduped_ranges,
+        key=lambda x: x.get('ingested_at', ''),
+        reverse=True,
+    )
+    for item in ranges_sorted[:8]:
+        src = sources_cfg.get(item.get('file', ''), {})
+        label = src.get('label', '一般來源')
+        when = item.get('ingested_at', '')[:16].replace('T', ' ')
+        summary = f"{item.get('min_date', '')} ~ {item.get('max_date', '')}｜{item.get('msg_count', 0)} 則"
+        timeline_items.append(
+            "<li><time>{}</time><p><strong>{}</strong> {}</p><span>{}</span></li>".format(
+                html_lib.escape(when or '未知時間'),
+                html_lib.escape(label),
+                html_lib.escape(item.get('file', '')),
+                html_lib.escape(summary),
+            ),
+        )
+    if not timeline_items:
+        timeline_items.append("<li><time>—</time><p><strong>尚無更新記錄</strong></p><span>請先執行 ingest</span></li>")
 
     category_rows = []
     for cat in category_stats:
@@ -602,6 +654,28 @@ body {{
 .hero h1 {{ margin: 0 0 4px; font-size: 1.75rem; }}
 .hero p {{ margin: 0; opacity: 0.92; }}
 .content {{ padding: 18px 20px 26px; }}
+.vendor-switch {{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}}
+.vendor-btn {{
+    display: inline-block;
+    text-decoration: none;
+    color: #1a3c48;
+    background: #eff6f9;
+    border: 1px solid #d3e1e8;
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 0.92rem;
+    font-weight: 700;
+}}
+.vendor-btn.is-active {{
+    color: #fff;
+    border-color: rgba(255,255,255,0.45);
+    background: rgba(17, 47, 58, 0.45);
+}}
 .kpi-grid {{
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -648,6 +722,34 @@ body {{
 }}
 .nav-btn:hover {{ background: #e4f0f5; }}
 .nav-btn.is-disabled {{ pointer-events: none; opacity: 0.56; }}
+.timeline {{
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 8px;
+}}
+.timeline li {{
+    border: 1px solid #dfe9ee;
+    background: #f9fcfe;
+    border-radius: 10px;
+    padding: 8px 10px;
+    margin: 0;
+}}
+.timeline time {{
+    display: block;
+    color: #40616f;
+    font-size: 0.82rem;
+    margin-bottom: 2px;
+}}
+.timeline p {{
+    margin: 0;
+    font-size: 0.95rem;
+}}
+.timeline span {{
+    color: #5f7680;
+    font-size: 0.83rem;
+}}
 table {{ width: 100%; border-collapse: collapse; }}
 th, td {{ border-bottom: 1px solid #e8eef1; padding: 8px 7px; text-align: left; font-size: 0.94rem; }}
 th {{ color: #244854; font-weight: 700; background: #f2f8fb; }}
@@ -670,6 +772,7 @@ tr:last-child td {{ border-bottom: 0; }}
         <p>{html_lib.escape(vendor_cfg['full_name'])} ｜ 更新時間 {generated_at}</p>
     </header>
     <section class="content">
+        <nav class="vendor-switch">{''.join(switch_buttons)}</nav>
         <div class="kpi-grid">{cards_html}</div>
 
         <section class="panel">
@@ -685,6 +788,11 @@ tr:last-child td {{ border-bottom: 0; }}
                 </thead>
                 <tbody>{''.join(source_rows)}</tbody>
             </table>
+        </section>
+
+        <section class="panel">
+            <h2>最近更新時間軸</h2>
+            <ul class="timeline">{''.join(timeline_items)}</ul>
         </section>
 
         <section class="panel">
