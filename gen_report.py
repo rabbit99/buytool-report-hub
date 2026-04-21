@@ -407,37 +407,37 @@ def _compute_sub_analyses(
         quotes = _pick_informative(_deduplicate(recs), max_items=5)
 
         ai_result = None
-        if _ANALYZER_AVAILABLE and ai_cache is not None:
-            cache_key = f'{cat_file}:{sub}'
-            jsonl_mtime = jsonl_path.stat().st_mtime if jsonl_path and jsonl_path.exists() else 0
-            cached = ai_cache.get(cache_key)
-            if cached:
-                mtime_match = cached.get('jsonl_mtime') == jsonl_mtime
-                if mtime_match:
-                    ai_result = cached['result']
-                    logger.info(f'[快取命中] {cache_key}')
-                    print(f'      ↩ AI 快取命中：{cache_key}')
-                elif not analyze:
-                    # JSONL 已更新但未加 --analyze：沿用舊分析，確保 AI 區塊可見（CI 情境）
-                    ai_result = cached['result']
-                    logger.info(f'[快取舊版] {cache_key}（JSONL 已更新，沿用舊分析）')
-                    print(f'      ↩ AI 快取（舊版）：{cache_key}')
-                # else: mtime 不符 + analyze=True → 下方重新呼叫 API
+        cache_key = f'{cat_file}:{sub}'
+        jsonl_mtime = jsonl_path.stat().st_mtime if jsonl_path and jsonl_path.exists() else 0
+        cached = ai_cache.get(cache_key)
+        if cached:
+            mtime_match = cached.get('jsonl_mtime') == jsonl_mtime
+            if mtime_match:
+                ai_result = cached['result']
+                logger.info(f'[快取命中] {cache_key}')
+                print(f'      ↩ AI 快取命中：{cache_key}')
+            else:
+                # JSONL 已更新：無論是否 --analyze 都沿用舊分析（CI 無 API key 也能顯示）
+                ai_result = cached['result']
+                logger.info(f'[快取舊版] {cache_key}（JSONL 已更新，沿用舊分析）')
+                print(f'      ↩ AI 快取（舊版）：{cache_key}')
+        else:
+            logger.info(f'[快取未命中] {cache_key}（新子分類，需 --analyze 取得分析）')
 
-            if ai_result is None and analyze:
-                # 僅在 --analyze 時才發出新的 API 請求
-                messages = [r.get('content', '') for r in quotes if r.get('content')]
-                if messages:
-                    logger.info(f'[AI 請求] {cache_key}（首次或更新分析）')
-                    ai_result = analyze_messages_batch(
-                        vendor_name, cat_title, sub, messages,
-                        speaker_count=analysis['speakers'],
-                    )
-                    if ai_result and ai_result.get('status') == 'success':
-                        ai_cache[cache_key] = {'jsonl_mtime': jsonl_mtime, 'result': ai_result}
-                    else:
-                        status = ai_result.get('status') if ai_result else 'None'
-                        logger.warning(f'[快取未寫入] {cache_key}，AI status={status}，訊息：')
+        if ai_result is None and _ANALYZER_AVAILABLE and analyze:
+            # 僅在 --analyze 且有 API 能力時才發出新的 API 請求
+            messages = [r.get('content', '') for r in quotes if r.get('content')]
+            if messages:
+                logger.info(f'[AI 請求] {cache_key}（首次分析）')
+                ai_result = analyze_messages_batch(
+                    vendor_name, cat_title, sub, messages,
+                    speaker_count=analysis['speakers'],
+                )
+                if ai_result and ai_result.get('status') == 'success':
+                    ai_cache[cache_key] = {'jsonl_mtime': jsonl_mtime, 'result': ai_result}
+                else:
+                    status = ai_result.get('status') if ai_result else 'None'
+                    logger.warning(f'[快取未寫入] {cache_key}，AI status={status}，訊息：')
 
         sub_analyses[sub] = {
             'records': recs,
@@ -586,8 +586,8 @@ def generate_reports(vendor_name, html=False, analyze=False):
     generated = 0
 
     # 載入 AI 快取（整個廠商共用）
-    # 即使不重新分析，也讀取快取來顯示已有的 AI 結果
-    ai_cache = _ai_cache_load(spec_dir) if _ANALYZER_AVAILABLE else {}
+    # 永遠載入快取——無論 _ANALYZER_AVAILABLE 或 --analyze，確保 CI 上也能顯示既有 AI 區塊
+    ai_cache = _ai_cache_load(spec_dir)
 
     for cat_file, cat_title in CATEGORIES:
         jsonl_path = spec_dir / f'{cat_file}.jsonl'
