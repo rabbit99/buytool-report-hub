@@ -18,11 +18,11 @@
     "site:qa": "npm run report && npm run site:build && npm run site:check",
     "update": "npm run ingest && npm run report",
     "update:ai": "npm run ingest && npm run report:ai",
-    "deploy:manual": "\"C:\\Program Files\\GitHub CLI\\gh.exe\" workflow run deploy-pages.yml -R rabbit99/buytool-report-hub --ref release",
+    "deploy:manual": "gh workflow run deploy-pages.yml -R rabbit99/buytool-report-hub --ref release",
     "publish:public": "powershell -ExecutionPolicy Bypass -File .\\scripts\\publish-public.ps1",
     "release:push": "git push origin HEAD:release",
     "release:mvp": "npm run update && npm run release:push",
-    "release:mvp:ai": "npm run update:ai && npm run release:push"
+    "release:mvp:ai": "npm run update:ai && npm run release:push && npm run deploy:manual"
   },
   "keywords": [
     "chat",
