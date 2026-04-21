@@ -1,0 +1,103 @@
+{
+  "vendor": "機器熊",
+  "ingested_ranges": [
+    {
+      "file": "[LINE]天堂經典版TW機器熊仿真瓜瓜群.txt",
+      "min_date": "2026-04-17",
+      "max_date": "2026-04-18",
+      "msg_count": 5528,
+      "new_records": 1666,
+      "ingested_at": "2026-04-18T11:43:21"
+    },
+    {
+      "file": "[LINE]天堂經典版TW機器熊仿真瓜瓜群.txt",
+      "min_date": "2026-04-17",
+      "max_date": "2026-04-18",
+      "msg_count": 5528,
+      "new_records": 0,
+      "ingested_at": "2026-04-18T11:43:59"
+    },
+    {
+      "file": "[LINE]天堂經典版TW機器熊仿真瓜瓜群.txt",
+      "min_date": "2026-04-17",
+      "max_date": "2026-04-18",
+      "msg_count": 5528,
+      "new_records": 0,
+      "ingested_at": "2026-04-18T14:10:20"
+    },
+    {
+      "file": "[LINE]天堂經典版TW機器熊仿真瓜瓜群.txt",
+      "min_date": "2026-04-17",
+      "max_date": "2026-04-18",
+      "msg_count": 5528,
+      "new_records": 0,
+      "ingested_at": "2026-04-18T14:34:56"
+    },
+    {
+      "file": "[LINE]天堂經典版TW機器熊仿真瓜瓜群.txt",
+      "min_date": "2026-04-17",
+      "max_date": "2026-04-18",
+      "msg_count": 5528,
+      "new_records": 0,
+      "ingested_at": "2026-04-18T14:35:28"
+    },
+    {
+      "file": "[LINE]天堂經典版TW機器熊仿真瓜瓜群.txt",
+      "min_date": "2026-04-17",
+      "max_date": "2026-04-18",
+      "msg_count": 5528,
+      "new_records": 0,
+      "ingested_at": "2026-04-18T14:36:54"
+    },
+    {
+      "file": "[LINE]天堂經典版TW機器熊仿真瓜瓜群.txt",
+      "min_date": "2026-04-17",
+      "max_date": "2026-04-18",
+      "msg_count": 5528,
+      "new_records": 0,
+      "ingested_at": "2026-04-18T14:41:59"
+    },
+    {
+      "file": "[LINE]天堂經典版TW機器熊仿真瓜瓜群.txt",
+      "min_date": "2026-04-17",
+      "max_date": "2026-04-18",
+      "msg_count": 5528,
+      "new_records": 0,
+      "ingested_at": "2026-04-18T14:42:40"
+    },
+    {
+      "file": "[LINE]天堂經典版TW機器熊仿真瓜瓜群.txt",
+      "min_date": "2026-04-17",
+      "max_date": "2026-04-18",
+      "msg_count": 5528,
+      "new_records": 0,
+      "ingested_at": "2026-04-21T16:33:51"
+    },
+    {
+      "file": "[LINE]天堂經典版TW機器熊仿真瓜瓜群.txt",
+      "min_date": "2026-04-17",
+      "max_date": "2026-04-18",
+      "msg_count": 5528,
+      "new_records": 0,
+      "ingested_at": "2026-04-21T16:44:00"
+    },
+    {
+      "file": "[LINE]天堂經典版TW機器熊仿真瓜瓜群.txt",
+      "min_date": "2026-04-17",
+      "max_date": "2026-04-18",
+      "msg_count": 5528,
+      "new_records": 0,
+      "ingested_at": "2026-04-21T16:48:45"
+    },
+    {
+      "file": "[LINE]天堂經典版TW機器熊仿真瓜瓜群.txt",
+      "min_date": "2026-04-17",
+      "max_date": "2026-04-18",
+      "msg_count": 5528,
+      "new_records": 0,
+      "ingested_at": "2026-04-21T16:54:39"
+    }
+  ],
+  "total_messages": 1666,
+  "last_updated": "2026-04-21T16:54:39"
+}

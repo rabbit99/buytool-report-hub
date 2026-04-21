@@ -1,0 +1,95 @@
+{
+  "vendor": "交易群",
+  "ingested_ranges": [
+    {
+      "file": "[LINE]天堂經典版：冥王黑帝斯交易討論群.txt",
+      "min_date": "2026-02-26",
+      "max_date": "2026-03-12",
+      "msg_count": 39832,
+      "new_records": 10853,
+      "ingested_at": "2026-04-18T11:43:26"
+    },
+    {
+      "file": "[LINE]天堂經典版：冥王黑帝斯交易討論群.txt",
+      "min_date": "2026-02-26",
+      "max_date": "2026-03-12",
+      "msg_count": 39832,
+      "new_records": 0,
+      "ingested_at": "2026-04-18T14:10:24"
+    },
+    {
+      "file": "[LINE]天堂經典版：冥王黑帝斯交易討論群.txt",
+      "min_date": "2026-02-26",
+      "max_date": "2026-03-12",
+      "msg_count": 39832,
+      "new_records": 0,
+      "ingested_at": "2026-04-18T14:35:01"
+    },
+    {
+      "file": "[LINE]天堂經典版：冥王黑帝斯交易討論群.txt",
+      "min_date": "2026-02-26",
+      "max_date": "2026-03-12",
+      "msg_count": 39832,
+      "new_records": 0,
+      "ingested_at": "2026-04-18T14:35:33"
+    },
+    {
+      "file": "[LINE]天堂經典版：冥王黑帝斯交易討論群.txt",
+      "min_date": "2026-02-26",
+      "max_date": "2026-03-12",
+      "msg_count": 39832,
+      "new_records": 0,
+      "ingested_at": "2026-04-18T14:36:59"
+    },
+    {
+      "file": "[LINE]天堂經典版：冥王黑帝斯交易討論群.txt",
+      "min_date": "2026-02-26",
+      "max_date": "2026-03-12",
+      "msg_count": 39832,
+      "new_records": 0,
+      "ingested_at": "2026-04-18T14:42:04"
+    },
+    {
+      "file": "[LINE]天堂經典版：冥王黑帝斯交易討論群.txt",
+      "min_date": "2026-02-26",
+      "max_date": "2026-03-12",
+      "msg_count": 39832,
+      "new_records": 0,
+      "ingested_at": "2026-04-18T14:42:44"
+    },
+    {
+      "file": "[LINE]天堂經典版：冥王黑帝斯交易討論群.txt",
+      "min_date": "2026-02-26",
+      "max_date": "2026-03-12",
+      "msg_count": 39832,
+      "new_records": 0,
+      "ingested_at": "2026-04-21T16:33:56"
+    },
+    {
+      "file": "[LINE]天堂經典版：冥王黑帝斯交易討論群.txt",
+      "min_date": "2026-02-26",
+      "max_date": "2026-03-12",
+      "msg_count": 39832,
+      "new_records": 0,
+      "ingested_at": "2026-04-21T16:44:05"
+    },
+    {
+      "file": "[LINE]天堂經典版：冥王黑帝斯交易討論群.txt",
+      "min_date": "2026-02-26",
+      "max_date": "2026-03-12",
+      "msg_count": 39832,
+      "new_records": 0,
+      "ingested_at": "2026-04-21T16:48:51"
+    },
+    {
+      "file": "[LINE]天堂經典版：冥王黑帝斯交易討論群.txt",
+      "min_date": "2026-02-26",
+      "max_date": "2026-03-12",
+      "msg_count": 39832,
+      "new_records": 0,
+      "ingested_at": "2026-04-21T16:54:44"
+    }
+  ],
+  "total_messages": 10853,
+  "last_updated": "2026-04-21T16:54:44"
+}

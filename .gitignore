@@ -10,8 +10,11 @@ __pycache__/
 # Output
 out/
 /reports/
-/spec/
 /site_publish/
+
+# spec: exclude raw message data (privacy) but keep meta and AI cache
+/spec/**/*.jsonl
+/spec/**/[LINE]*.txt
 
 # Local secrets
 .env

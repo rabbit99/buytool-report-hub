@@ -1,0 +1,183 @@
+{
+  "vendor": "特工",
+  "ingested_ranges": [
+    {
+      "file": "[LINE]天堂經典版特工交流群.txt",
+      "min_date": "2026-04-12",
+      "max_date": "2026-04-14",
+      "msg_count": 1959,
+      "new_records": 613,
+      "ingested_at": "2026-04-18T13:52:42"
+    },
+    {
+      "file": "[LINE]天堂經典版特工付費用戶群.txt",
+      "min_date": "2026-04-18",
+      "max_date": "2026-04-18",
+      "msg_count": 113,
+      "new_records": 29,
+      "ingested_at": "2026-04-18T13:52:42"
+    },
+    {
+      "file": "[LINE]天堂經典版特工交流群.txt",
+      "min_date": "2026-04-12",
+      "max_date": "2026-04-14",
+      "msg_count": 1959,
+      "new_records": 0,
+      "ingested_at": "2026-04-18T14:10:19"
+    },
+    {
+      "file": "[LINE]天堂經典版特工付費用戶群.txt",
+      "min_date": "2026-04-18",
+      "max_date": "2026-04-18",
+      "msg_count": 113,
+      "new_records": 0,
+      "ingested_at": "2026-04-18T14:10:19"
+    },
+    {
+      "file": "[LINE]天堂經典版特工交流群.txt",
+      "min_date": "2026-04-12",
+      "max_date": "2026-04-14",
+      "msg_count": 1959,
+      "new_records": 0,
+      "ingested_at": "2026-04-18T14:34:55"
+    },
+    {
+      "file": "[LINE]天堂經典版特工付費用戶群.txt",
+      "min_date": "2026-04-18",
+      "max_date": "2026-04-18",
+      "msg_count": 113,
+      "new_records": 0,
+      "ingested_at": "2026-04-18T14:34:55"
+    },
+    {
+      "file": "[LINE]天堂經典版特工交流群.txt",
+      "min_date": "2026-04-12",
+      "max_date": "2026-04-14",
+      "msg_count": 1959,
+      "new_records": 0,
+      "ingested_at": "2026-04-18T14:35:27"
+    },
+    {
+      "file": "[LINE]天堂經典版特工付費用戶群.txt",
+      "min_date": "2026-04-18",
+      "max_date": "2026-04-18",
+      "msg_count": 113,
+      "new_records": 0,
+      "ingested_at": "2026-04-18T14:35:27"
+    },
+    {
+      "file": "[LINE]天堂經典版特工交流群.txt",
+      "min_date": "2026-04-12",
+      "max_date": "2026-04-14",
+      "msg_count": 1959,
+      "new_records": 0,
+      "ingested_at": "2026-04-18T14:36:53"
+    },
+    {
+      "file": "[LINE]天堂經典版特工付費用戶群.txt",
+      "min_date": "2026-04-18",
+      "max_date": "2026-04-18",
+      "msg_count": 113,
+      "new_records": 0,
+      "ingested_at": "2026-04-18T14:36:53"
+    },
+    {
+      "file": "[LINE]天堂經典版特工交流群.txt",
+      "min_date": "2026-04-12",
+      "max_date": "2026-04-14",
+      "msg_count": 1959,
+      "new_records": 0,
+      "ingested_at": "2026-04-18T14:41:59"
+    },
+    {
+      "file": "[LINE]天堂經典版特工付費用戶群.txt",
+      "min_date": "2026-04-18",
+      "max_date": "2026-04-18",
+      "msg_count": 113,
+      "new_records": 0,
+      "ingested_at": "2026-04-18T14:41:59"
+    },
+    {
+      "file": "[LINE]天堂經典版特工交流群.txt",
+      "min_date": "2026-04-12",
+      "max_date": "2026-04-14",
+      "msg_count": 1959,
+      "new_records": 0,
+      "ingested_at": "2026-04-18T14:42:39"
+    },
+    {
+      "file": "[LINE]天堂經典版特工付費用戶群.txt",
+      "min_date": "2026-04-18",
+      "max_date": "2026-04-18",
+      "msg_count": 113,
+      "new_records": 0,
+      "ingested_at": "2026-04-18T14:42:39"
+    },
+    {
+      "file": "[LINE]天堂經典版特工交流群.txt",
+      "min_date": "2026-04-11",
+      "max_date": "2026-04-21",
+      "msg_count": 23542,
+      "new_records": 4386,
+      "ingested_at": "2026-04-21T16:33:49"
+    },
+    {
+      "file": "[LINE]天堂經典版特工付費用戶群.txt",
+      "min_date": "2026-04-18",
+      "max_date": "2026-04-21",
+      "msg_count": 11405,
+      "new_records": 2729,
+      "ingested_at": "2026-04-21T16:33:51"
+    },
+    {
+      "file": "[LINE]天堂經典版特工交流群.txt",
+      "min_date": "2026-04-11",
+      "max_date": "2026-04-21",
+      "msg_count": 23542,
+      "new_records": 0,
+      "ingested_at": "2026-04-21T16:43:58"
+    },
+    {
+      "file": "[LINE]天堂經典版特工付費用戶群.txt",
+      "min_date": "2026-04-18",
+      "max_date": "2026-04-21",
+      "msg_count": 11405,
+      "new_records": 0,
+      "ingested_at": "2026-04-21T16:43:59"
+    },
+    {
+      "file": "[LINE]天堂經典版特工交流群.txt",
+      "min_date": "2026-04-11",
+      "max_date": "2026-04-21",
+      "msg_count": 23542,
+      "new_records": 0,
+      "ingested_at": "2026-04-21T16:48:43"
+    },
+    {
+      "file": "[LINE]天堂經典版特工付費用戶群.txt",
+      "min_date": "2026-04-18",
+      "max_date": "2026-04-21",
+      "msg_count": 11405,
+      "new_records": 0,
+      "ingested_at": "2026-04-21T16:48:45"
+    },
+    {
+      "file": "[LINE]天堂經典版特工交流群.txt",
+      "min_date": "2026-04-11",
+      "max_date": "2026-04-21",
+      "msg_count": 23542,
+      "new_records": 0,
+      "ingested_at": "2026-04-21T16:54:37"
+    },
+    {
+      "file": "[LINE]天堂經典版特工付費用戶群.txt",
+      "min_date": "2026-04-18",
+      "max_date": "2026-04-21",
+      "msg_count": 11405,
+      "new_records": 0,
+      "ingested_at": "2026-04-21T16:54:38"
+    }
+  ],
+  "total_messages": 7757,
+  "last_updated": "2026-04-21T16:54:38"
+}
