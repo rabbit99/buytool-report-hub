@@ -996,19 +996,6 @@ def _build_category_html(vendor_cfg, cat_file, cat_title, records, date_range, s
                 f'{sup_html}</div>'
             )
 
-        # 群友引言
-        quotes_html = ''
-        if quotes:
-            q_items = ''.join(
-                f'<blockquote>{html_lib.escape(_format_quote(q.get("content", ""), 130))}</blockquote>'
-                for q in quotes[:4]
-            )
-            quotes_html = (
-                f'<div class="quotes-section">'
-                f'<div class="quotes-title">群友原話（節錄）</div>'
-                f'{q_items}</div>'
-            )
-
         cards_html.append(f'''<article class="sub-card" id="sub-{i}">
   <header class="card-header">
     <div class="card-title">{html_lib.escape(sub)}</div>
@@ -1021,7 +1008,6 @@ def _build_category_html(vendor_cfg, cat_file, cat_title, records, date_range, s
   </header>
   {chips_html}
   {ai_html}
-  {quotes_html}
 </article>''')
 
     return f'''<!DOCTYPE html>
