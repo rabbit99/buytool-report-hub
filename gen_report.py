@@ -673,323 +673,218 @@ def _generate_overview(vendor_cfg, spec_dir, report_dir, html=False):
 
 
 def _generate_overview_dashboard_html(vendor_cfg, report_dir, meta, category_stats, sources_cfg):
-    """產生儀表板風格的總覽 HTML。"""
-    generated_at = datetime.now().strftime("%Y/%m/%d %H:%M")
+    """產生 Stitch 風格儀表板總覽 HTML（與分類報告共用設計系統）。"""
+    generated_at = datetime.now().strftime('%Y/%m/%d %H:%M')
+    vendor_name = vendor_cfg['name']
     total_categories = len([c for c in category_stats if c['count'] > 0])
     total_messages = sum(c['count'] for c in category_stats)
     total_speakers = sum(c['speakers'] for c in category_stats)
-
     top_category = max(category_stats, key=lambda c: c['count'], default=None)
     top_label = top_category['title'] if top_category and top_category['count'] > 0 else '—'
 
-    cards_html = (
-        f"<div class='kpi-card'><span class='kpi-label'>累計訊息</span><strong>{total_messages:,}</strong></div>"
-        f"<div class='kpi-card'><span class='kpi-label'>分類覆蓋</span><strong>{total_categories} / {len(CATEGORIES)}</strong></div>"
-        f"<div class='kpi-card'><span class='kpi-label'>參與者估計</span><strong>{total_speakers:,}</strong></div>"
-        f"<div class='kpi-card'><span class='kpi-label'>最熱分類</span><strong>{html_lib.escape(top_label)}</strong></div>"
+    # 資料日期範圍
+    all_ranges = meta.get('ingested_ranges', []) if meta else []
+    all_dates = [r['min_date'] for r in all_ranges] + [r['max_date'] for r in all_ranges]
+    data_date_range = f"{min(all_dates)} ~ {max(all_dates)}" if all_dates else '—'
+
+    # 廠商切換側欄連結
+    vendor_links = ''.join(
+        f'<a class="vendor-link{" is-active" if vn == vendor_name else ""}" '
+        f'href="../{vn}/00_總覽.html">{html_lib.escape(vn)}</a>'
+        for vn in list_publish_vendors()
     )
 
-    switch_buttons = []
-    for vname in list_publish_vendors():
-        vcfg = get_vendor(vname)
-        active = " is-active" if vname == vendor_cfg['name'] else ""
-        href = f"../{vname}/00_總覽.html"
-        switch_buttons.append(
-            "<a class='vendor-btn{active}' href='{href}'>{name}</a>".format(
-                active=active,
-                href=href,
-                name=html_lib.escape(vname),
-            ),
-        )
+    # 分類側欄連結（帶訊息數）
+    cat_sidebar_links = ''.join(
+        f'<a class="cat-link" href="{cat["file"]}.html">'
+        f'{html_lib.escape(cat["title"])}'
+        f'<span>{cat["count"]:,}</span></a>'
+        for cat in category_stats
+    )
 
-    nav_buttons = []
+    # 分類卡片（2欄 grid）
+    cat_cards = []
     for cat in category_stats:
-        disabled = " is-disabled" if cat['count'] == 0 else ""
-        href = f"{cat['file']}.html" if cat['count'] > 0 else "#"
-        nav_buttons.append(
-            "<a class='nav-btn{disabled}' href='{href}'>{title}<span>{count} 則</span></a>".format(
-                disabled=disabled,
-                href=href,
-                title=html_lib.escape(cat['title']),
-                count=cat['count'],
-            ),
+        empty_cls = ' is-empty' if cat['count'] == 0 else ''
+        href = f'{cat["file"]}.html' if cat['count'] > 0 else '#'
+        pct = f'{cat["count"] / total_messages * 100:.0f}%' if total_messages > 0 else '0%'
+        cat_cards.append(
+            f'<a class="cat-card{empty_cls}" href="{href}">'
+            f'<div class="cat-card-header">'
+            f'<div class="cat-card-title">{html_lib.escape(cat["title"])}</div>'
+            f'<div class="cat-card-meta">{cat["count"]:,} 則｜{cat["speakers"]:,} 位發言者</div>'
+            f'</div>'
+            f'<div class="cat-card-body">'
+            f'<div class="cat-bar"><div class="cat-bar-fill" style="width:{pct}"></div></div>'
+            f'<div class="cat-bar-label">{pct} 討論量占比</div>'
+            f'</div></a>'
         )
 
-    unique_ranges = {}
-    for r in meta.get('ingested_ranges', []) if meta else []:
-        file_name = str(r.get('file', '')).strip()
-        min_date = str(r.get('min_date', '')).strip()
-        max_date = str(r.get('max_date', '')).strip()
-        msg_count = str(r.get('msg_count', '')).strip()
-        key = (
-            file_name,
-            min_date,
-            max_date,
-            msg_count,
-        )
+    # 來源表格（去重）
+    unique_ranges: dict = {}
+    for r in all_ranges:
+        key = (r.get('file', ''), r.get('min_date', ''), r.get('max_date', ''), r.get('msg_count', ''))
         current = unique_ranges.get(key)
         if not current or r.get('ingested_at', '') > current.get('ingested_at', ''):
             unique_ranges[key] = r
-    deduped_ranges = list(unique_ranges.values())
+    deduped = list(unique_ranges.values())
 
     source_rows = []
-    for r in deduped_ranges:
-        fname = html_lib.escape(r['file'])
-        src = sources_cfg.get(r['file'], {})
-        label = html_lib.escape(src.get('label', '—'))
-        pri = src.get('priority', 5)
-        date_range = f"{r['min_date']} ~ {r['max_date']}"
+    for r in deduped:
+        fname = html_lib.escape(str(r.get('file', '')))
+        src_cfg = sources_cfg.get(r.get('file', ''), {})
+        label = html_lib.escape(src_cfg.get('label', '—'))
+        pri = src_cfg.get('priority', 5)
+        date_r = html_lib.escape(f"{r.get('min_date', '')} ~ {r.get('max_date', '')}")
         source_rows.append(
-            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>".format(
-                fname,
-                label,
-                pri,
-                html_lib.escape(date_range),
-                r['msg_count'],
-            ),
+            f'<tr><td>{fname}</td><td>{label}</td><td>{pri}</td>'
+            f'<td>{date_r}</td><td>{r.get("msg_count", "")}</td></tr>'
         )
     if not source_rows:
-        source_rows.append("<tr><td colspan='5'>尚無來源資料</td></tr>")
+        source_rows.append('<tr><td colspan="5">尚無來源資料</td></tr>')
 
+    # 時間軸
     timeline_items = []
-    ranges_sorted = sorted(
-        deduped_ranges,
-        key=lambda x: x.get('ingested_at', ''),
-        reverse=True,
-    )
-    for item in ranges_sorted[:8]:
-        src = sources_cfg.get(item.get('file', ''), {})
-        label = src.get('label', '一般來源')
-        when = item.get('ingested_at', '')[:16].replace('T', ' ')
-        summary = f"{item.get('min_date', '')} ~ {item.get('max_date', '')}｜{item.get('msg_count', 0)} 則"
+    for item in sorted(deduped, key=lambda x: x.get('ingested_at', ''), reverse=True)[:6]:
+        src_cfg = sources_cfg.get(item.get('file', ''), {})
+        label = html_lib.escape(src_cfg.get('label', '一般來源'))
+        when = html_lib.escape(item.get('ingested_at', '')[:16].replace('T', ' '))
+        summary = html_lib.escape(
+            f"{item.get('min_date', '')} ~ {item.get('max_date', '')}｜{item.get('msg_count', 0)} 則"
+        )
         timeline_items.append(
-            "<li><time>{}</time><p><strong>{}</strong> {}</p><span>{}</span></li>".format(
-                html_lib.escape(when or '未知時間'),
-                html_lib.escape(label),
-                html_lib.escape(item.get('file', '')),
-                html_lib.escape(summary),
-            ),
+            f'<li class="tl-item"><time class="tl-time">{when}</time>'
+            f'<div class="tl-body"><strong>{label}</strong></div>'
+            f'<div class="tl-sub">{summary}</div></li>'
         )
     if not timeline_items:
-        timeline_items.append("<li><time>—</time><p><strong>尚無更新記錄</strong></p><span>請先執行 ingest</span></li>")
-
-    category_rows = []
-    for cat in category_stats:
-        link = f"<a href='{cat['file']}.html'>開啟報告</a>" if cat['count'] > 0 else "—"
-        category_rows.append(
-            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>".format(
-                html_lib.escape(cat['title']),
-                cat['count'],
-                cat['speakers'],
-                link,
-            ),
+        timeline_items.append(
+            '<li class="tl-item"><time class="tl-time">—</time>'
+            '<div class="tl-body"><strong>尚無更新記錄</strong></div></li>'
         )
 
     html_content = f"""<!DOCTYPE html>
 <html lang="zh-TW">
-<head>
-<meta charset="utf-8">
+<head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{html_lib.escape(vendor_cfg['name'])} — 儀表板總覽</title>
+<title>{html_lib.escape(vendor_name)} — 總覽</title>
 <style>
-:root {{
-    --bg: #f4f8fa;
-    --panel: #ffffff;
-    --brand: #1f7a6c;
-    --brand-2: #1e5f88;
-    --line: #d7e3e8;
-    --text: #1a2b34;
-    --muted: #58717c;
-    --shadow: 0 14px 28px rgba(19, 48, 58, 0.1);
+:root{{
+  --sidebar-bg:#13303a;--sidebar-hover:#1e4655;--sidebar-active:#2a7f6c;
+  --brand:#2a7f6c;--brand-2:#1e5f88;
+  --brand-grad:linear-gradient(120deg,var(--brand) 0%,var(--brand-2) 100%);
+  --page-bg:#f1f5f8;--card-bg:#fff;--card-border:#d7e3e8;
+  --card-shadow:0 2px 12px rgba(15,35,45,.07);
+  --card-shadow-hover:0 6px 24px rgba(15,35,45,.13);
+  --text:#1a2b34;--text-sub:#4d6168;--radius:16px;--radius-sm:10px;
 }}
-* {{ box-sizing: border-box; }}
-body {{
-    margin: 0;
-    font-family: "Noto Sans TC", "Microsoft JhengHei", sans-serif;
-    color: var(--text);
-    background:
-        radial-gradient(circle at 8% 8%, #d9ede8 0%, transparent 40%),
-        radial-gradient(circle at 92% 5%, #d7e6f3 0%, transparent 38%),
-        var(--bg);
-    padding: 22px 14px 30px;
-}}
-.shell {{
-    max-width: 1180px;
-    margin: 0 auto;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 18px;
-    overflow: hidden;
-    box-shadow: var(--shadow);
-}}
-.hero {{
-    padding: 20px 24px;
-    background: linear-gradient(120deg, var(--brand), var(--brand-2));
-    color: #fff;
-}}
-.hero h1 {{ margin: 0 0 4px; font-size: 1.75rem; }}
-.hero p {{ margin: 0; opacity: 0.92; }}
-.content {{ padding: 18px 20px 26px; }}
-.vendor-switch {{
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-bottom: 12px;
-}}
-.vendor-btn {{
-    display: inline-block;
-    text-decoration: none;
-    color: #1a3c48;
-    background: #eff6f9;
-    border: 1px solid #d3e1e8;
-    border-radius: 999px;
-    padding: 6px 12px;
-    font-size: 0.92rem;
-    font-weight: 700;
-}}
-.vendor-btn.is-active {{
-    color: #fff;
-    border-color: rgba(255,255,255,0.45);
-    background: rgba(17, 47, 58, 0.45);
-}}
-.kpi-grid {{
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 10px;
-    margin-bottom: 14px;
-}}
-.kpi-card {{
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    background: #f8fcfd;
-    padding: 10px 12px;
-}}
-.kpi-label {{ display: block; font-size: 0.82rem; color: var(--muted); margin-bottom: 2px; }}
-.kpi-card strong {{ font-size: 1.2rem; }}
-.panel {{
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    padding: 12px;
-    margin-bottom: 12px;
-    background: #fff;
-}}
-.panel h2 {{ margin: 0 0 10px; font-size: 1.08rem; color: #1b4b5a; }}
-.nav-grid {{
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px;
-}}
-.nav-btn {{
-    display: block;
-    text-decoration: none;
-    color: #173b43;
-    background: #eef5f8;
-    border: 1px solid #d2e0e7;
-    border-radius: 10px;
-    padding: 10px;
-    font-weight: 700;
-}}
-.nav-btn span {{
-    display: block;
-    margin-top: 4px;
-    font-size: 0.82rem;
-    color: var(--muted);
-    font-weight: 500;
-}}
-.nav-btn:hover {{ background: #e4f0f5; }}
-.nav-btn.is-disabled {{ pointer-events: none; opacity: 0.56; }}
-.timeline {{
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: grid;
-    gap: 8px;
-}}
-.timeline li {{
-    border: 1px solid #dfe9ee;
-    background: #f9fcfe;
-    border-radius: 10px;
-    padding: 8px 10px;
-    margin: 0;
-}}
-.timeline time {{
-    display: block;
-    color: #40616f;
-    font-size: 0.82rem;
-    margin-bottom: 2px;
-}}
-.timeline p {{
-    margin: 0;
-    font-size: 0.95rem;
-}}
-.timeline span {{
-    color: #5f7680;
-    font-size: 0.83rem;
-}}
-table {{ width: 100%; border-collapse: collapse; }}
-th, td {{ border-bottom: 1px solid #e8eef1; padding: 8px 7px; text-align: left; font-size: 0.94rem; }}
-th {{ color: #244854; font-weight: 700; background: #f2f8fb; }}
-tr:last-child td {{ border-bottom: 0; }}
-@media (max-width: 900px) {{
-    .kpi-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
-    .nav-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
-}}
-@media (max-width: 560px) {{
-    .hero h1 {{ font-size: 1.34rem; }}
-    .kpi-grid {{ grid-template-columns: 1fr; }}
-    .nav-grid {{ grid-template-columns: 1fr; }}
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif;color:var(--text);background:var(--page-bg);line-height:1.7}}
+.layout{{display:grid;grid-template-columns:240px 1fr;min-height:100vh}}
+.sidebar{{background:var(--sidebar-bg);color:#c8dde5;position:sticky;top:0;height:100vh;overflow-y:auto;display:flex;flex-direction:column}}
+.sidebar-top{{padding:18px 16px 12px;border-bottom:1px solid rgba(255,255,255,.08)}}
+.sidebar-vendor{{font-size:1.1rem;font-weight:700;color:#e8f4f8;margin-bottom:2px}}
+.sidebar-sub{{font-size:.82rem;color:#80b0bd}}
+.sidebar-section-label{{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:#6090a0;padding:12px 16px 4px}}
+.vendor-link{{display:block;padding:7px 16px;color:#a8c8d5;text-decoration:none;font-size:.9rem;border-left:3px solid transparent;transition:all .15s ease}}
+.vendor-link:hover{{background:var(--sidebar-hover);color:#e8f4f8;border-left-color:var(--brand)}}
+.vendor-link.is-active{{background:rgba(42,127,108,.25);color:#6fdbb8;border-left-color:var(--brand)}}
+.cat-link{{display:flex;justify-content:space-between;padding:6px 16px;color:#7aa0b0;text-decoration:none;font-size:.85rem;transition:color .12s}}
+.cat-link:hover{{color:#c8dde5}}
+.cat-link span{{color:#5a8090;font-size:.8rem}}
+.sidebar-footer{{margin-top:auto;padding:12px 16px;border-top:1px solid rgba(255,255,255,.08);font-size:.78rem;color:#5a8090}}
+.main{{padding:20px 22px 32px;max-width:900px}}
+.topbar{{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px}}
+.topbar-title{{font-size:1.35rem;font-weight:700;color:var(--text)}}
+.summary-bar{{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}}
+.summary-kpi{{background:#fff;border:1px solid var(--card-border);border-radius:var(--radius-sm);padding:7px 13px;font-size:.88rem;color:var(--text-sub)}}
+.summary-kpi strong{{color:var(--text);font-size:1.02rem}}
+.cat-grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:14px}}
+.cat-card{{background:var(--card-bg);border:1px solid var(--card-border);border-radius:var(--radius);box-shadow:var(--card-shadow);overflow:hidden;transition:box-shadow .2s ease;text-decoration:none;color:var(--text);display:block}}
+.cat-card:hover{{box-shadow:var(--card-shadow-hover)}}
+.cat-card-header{{padding:11px 15px;background:var(--brand-grad);color:#fff}}
+.cat-card-title{{font-size:1rem;font-weight:700}}
+.cat-card-meta{{font-size:.82rem;opacity:.85;margin-top:2px}}
+.cat-card-body{{padding:9px 15px 11px}}
+.cat-bar{{height:5px;background:#e4eff3;border-radius:3px;margin-bottom:5px}}
+.cat-bar-fill{{height:100%;background:var(--brand-grad);border-radius:3px}}
+.cat-bar-label{{font-size:.8rem;color:var(--text-sub)}}
+.cat-card.is-empty .cat-card-header{{background:#8899a6}}
+.cat-card.is-empty{{opacity:.55;pointer-events:none}}
+.panel{{background:var(--card-bg);border:1px solid var(--card-border);border-radius:var(--radius);box-shadow:var(--card-shadow);padding:14px 16px;margin-bottom:12px}}
+.panel-title{{font-size:.95rem;font-weight:700;color:#1b4b5a;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--card-border)}}
+table{{width:100%;border-collapse:collapse}}
+th,td{{border-bottom:1px solid #eef3f5;padding:7px 6px;text-align:left;font-size:.87rem}}
+th{{color:#244854;font-weight:700;background:#f5fafc}}
+tr:last-child td{{border-bottom:0}}
+.timeline{{list-style:none;display:grid;gap:7px}}
+.tl-item{{border:1px solid #dfe9ee;background:#f9fcfe;border-radius:var(--radius-sm);padding:8px 11px}}
+.tl-time{{display:block;color:#40616f;font-size:.78rem;margin-bottom:2px}}
+.tl-body{{font-size:.88rem}}
+.tl-sub{{color:#5f7680;font-size:.82rem}}
+.report-footer{{margin-top:10px;font-size:.82rem;color:#7a909a;text-align:center;padding:12px 0 0;border-top:1px solid var(--card-border)}}
+@media(max-width:780px){{
+  .layout{{grid-template-columns:1fr}}
+  .sidebar{{position:static;height:auto}}
+  .main{{padding:14px 12px 24px}}
+  .cat-grid{{grid-template-columns:1fr}}
 }}
 </style>
 </head>
 <body>
-<main class="shell">
-    <header class="hero">
-        <h1>{html_lib.escape(vendor_cfg['name'])} 報告儀表板</h1>
-        <p>{html_lib.escape(vendor_cfg['full_name'])} ｜ 更新時間 {generated_at}</p>
-    </header>
-    <section class="content">
-        <nav class="vendor-switch">{''.join(switch_buttons)}</nav>
-        <div class="kpi-grid">{cards_html}</div>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="sidebar-top">
+      <div class="sidebar-vendor">{html_lib.escape(vendor_name)}</div>
+      <div class="sidebar-sub">報告總覽</div>
+    </div>
+    <div class="sidebar-section-label">切換廠商</div>
+    {vendor_links}
+    <div class="sidebar-section-label">所有分類</div>
+    {cat_sidebar_links}
+    <div class="sidebar-footer">
+      資料：{html_lib.escape(data_date_range)}<br>
+      產生：{generated_at}
+    </div>
+  </aside>
+  <main class="main">
+    <div class="topbar">
+      <div class="topbar-title">{html_lib.escape(vendor_name)} 報告總覽</div>
+    </div>
+    <div class="summary-bar">
+      <div class="summary-kpi"><strong>{total_messages:,}</strong> 則訊息</div>
+      <div class="summary-kpi"><strong>{total_speakers:,}</strong> 位發言者</div>
+      <div class="summary-kpi">資料期間 <strong>{html_lib.escape(data_date_range)}</strong></div>
+      <div class="summary-kpi">最熱分類 <strong>{html_lib.escape(top_label)}</strong></div>
+    </div>
+    <div class="cat-grid">{''.join(cat_cards)}</div>
 
-        <section class="panel">
-            <h2>分類導覽</h2>
-            <div class="nav-grid">{''.join(nav_buttons)}</div>
-        </section>
+    <div class="panel">
+      <div class="panel-title">資料來源</div>
+      <table>
+        <thead><tr><th>檔案</th><th>標籤</th><th>優先級</th><th>日期範圍</th><th>訊息數</th></tr></thead>
+        <tbody>{''.join(source_rows)}</tbody>
+      </table>
+    </div>
 
-        <section class="panel">
-            <h2>來源覆蓋</h2>
-            <table>
-                <thead>
-                    <tr><th>資料檔案</th><th>標籤</th><th>優先級</th><th>日期範圍</th><th>訊息數</th></tr>
-                </thead>
-                <tbody>{''.join(source_rows)}</tbody>
-            </table>
-        </section>
+    <div class="panel">
+      <div class="panel-title">最近更新</div>
+      <ul class="timeline">{''.join(timeline_items)}</ul>
+    </div>
 
-        <section class="panel">
-            <h2>最近更新時間軸</h2>
-            <ul class="timeline">{''.join(timeline_items)}</ul>
-        </section>
-
-        <section class="panel">
-            <h2>分類統計</h2>
-            <table>
-                <thead>
-                    <tr><th>分類</th><th>訊息數</th><th>參與者</th><th>連結</th></tr>
-                </thead>
-                <tbody>{''.join(category_rows)}</tbody>
-            </table>
-        </section>
-    </section>
-</main>
+    <footer class="report-footer">
+      {html_lib.escape(vendor_cfg['full_name'])} ｜
+      自動產生於 {generated_at}
+    </footer>
+  </main>
+</div>
 </body>
 </html>"""
 
     html_path = report_dir / '00_總覽.html'
     with open(html_path, 'w', encoding='utf-8') as f:
         f.write(html_content)
-    print(f'  ✓ {html_path.name}（儀表板）')
-
+    print(f'  \u2713 {html_path.name}\uff08\u5100\u8868\u677f\uff09')
 
 # ── 分類報告 HTML（Stitch 風格） ─────────────────────────────────
 
