@@ -27,6 +27,9 @@ def _clean_output() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
+PUBLISH_EXCLUDED_CATEGORIES: set[str] = {"06_買賣交易"}
+
+
 def _copy_vendor_reports() -> list[tuple[str, str]]:
   links: list[tuple[str, str]] = []
   for vendor in list_publish_vendors():
@@ -35,7 +38,17 @@ def _copy_vendor_reports() -> list[tuple[str, str]]:
       continue
 
     dst = OUT_DIR / vendor
-    shutil.copytree(src, dst)
+    # Copy all files except excluded categories
+    dst.mkdir(parents=True, exist_ok=True)
+    for item in src.iterdir():
+      # Skip excluded category HTML/MD files
+      skip = any(item.stem == cat for cat in PUBLISH_EXCLUDED_CATEGORIES)
+      if skip:
+        continue
+      if item.is_dir():
+        shutil.copytree(item, dst / item.name)
+      else:
+        shutil.copy2(item, dst / item.name)
     if (dst / "00_總覽.html").exists():
       links.append((vendor, f"./{vendor}/00_總覽.html"))
   return links

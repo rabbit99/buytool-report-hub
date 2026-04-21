@@ -140,6 +140,10 @@ def analyze_messages_batch(
                 if isinstance(analysis, list):
                     logger.warning(f'[AI 回傳格式異常] {key}：analysis 為 list，已自動轉換為字串')
                     analysis = '\n'.join(str(item) for item in analysis)
+                # 去識別化：移除 LINE ID（@英數）和個人暱稱引用（玩家 @xxx）
+                import re as _re
+                analysis = _re.sub(r'玩家\s*@[\w\u4e00-\u9fff（(][\w\u4e00-\u9fff）)]+', '有玩家', analysis)
+                analysis = _re.sub(r'@[a-zA-Z0-9]{6,}', '', analysis)
                 logger.info(f'[AI 成功] {key}，標題：{parsed.get("title", "")[:30]}')
                 return {
                     'title': parsed.get('title', ''),

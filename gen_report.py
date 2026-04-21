@@ -825,6 +825,8 @@ tr:last-child td{{border-bottom:0}}
 .tl-time{{display:block;color:#40616f;font-size:.78rem;margin-bottom:2px}}
 .tl-body{{font-size:.88rem}}
 .tl-sub{{color:#5f7680;font-size:.82rem}}
+.notice-bar{{background:#fff3cd;border:1px solid #ffc107;border-radius:var(--radius-sm);padding:7px 14px;font-size:.82rem;color:#664d03;margin-bottom:12px}}
+.notice-bar a{{color:#5a3e02;font-weight:700}}
 .report-footer{{margin-top:10px;font-size:.82rem;color:#7a909a;text-align:center;padding:12px 0 0;border-top:1px solid var(--card-border)}}
 @media(max-width:780px){{
   .layout{{grid-template-columns:1fr}}
@@ -851,6 +853,7 @@ tr:last-child td{{border-bottom:0}}
     </div>
   </aside>
   <main class="main">
+    <div class="notice-bar">本站內容為玩家社群討論之自動化彙整，僅供資訊參考。本站不鼓勵、不協助任何違反遊戲服務條款或相關法規之行為。<a href="../legal/disclaimer.html">閱讀完整免責聲明</a></div>
     <div class="topbar">
       <div class="topbar-title">{html_lib.escape(vendor_name)} 報告總覽</div>
     </div>
@@ -1081,6 +1084,8 @@ body{{font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif;color:var(--tex
 .quotes-section{{padding:10px 14px 14px}}
 .quotes-title{{font-size:.82rem;font-weight:700;color:var(--text-sub);letter-spacing:.03em;margin-bottom:7px}}
 .quotes-section blockquote{{margin:0 0 7px;padding:7px 11px;background:#f8fafb;border-left:3px solid #93c5fd;border-radius:0 8px 8px 0;color:#2a3a40;font-size:.9rem;line-height:1.6}}
+.notice-bar{{background:#fff3cd;border:1px solid #ffc107;border-radius:var(--radius-sm);padding:7px 14px;font-size:.82rem;color:#664d03;margin-bottom:12px}}
+.notice-bar a{{color:#5a3e02;font-weight:700}}
 .report-footer{{margin-top:10px;font-size:.82rem;color:#7a909a;text-align:center;padding:12px 0 0;border-top:1px solid var(--card-border)}}
 @media(max-width:780px){{
   .layout{{grid-template-columns:1fr}}
@@ -1110,6 +1115,7 @@ body{{font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif;color:var(--tex
     </div>
   </aside>
   <main class="main">
+    <div class="notice-bar">本站內容為玩家社群討論之自動化彙整，僅供資訊參考。本站不鼓勵、不協助任何違反遊戲服務條款或相關法規之行為。<a href="../../legal/disclaimer.html">閱讀完整免責聲明</a></div>
     <div class="topbar">
       <div class="topbar-title">{html_lib.escape(cat_title)}整理</div>
       <nav class="vendor-switch">{vendor_btns}</nav>
