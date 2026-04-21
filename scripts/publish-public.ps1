@@ -9,9 +9,11 @@ $ghCommand = Get-Command gh -ErrorAction SilentlyContinue
 
 if ($ghCommand) {
     $gh = $ghCommand.Source
-} elseif (Test-Path $defaultGhPath) {
+}
+elseif (Test-Path $defaultGhPath) {
     $gh = $defaultGhPath
-} else {
+}
+else {
     Write-Error "GitHub CLI not found. Install gh first."
     exit 1
 }

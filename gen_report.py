@@ -14,53 +14,15 @@ import json
 import html as html_lib
 import argparse
 import sys
-import logging
 from pathlib import Path
 from collections import defaultdict, Counter
 from datetime import datetime
 
+import logging
+
 from vendor_config import get_vendor, list_vendors, list_publish_vendors
 
-# ── Logger 設定 ───────────────────────────────────────────────
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-    handlers=[
-        logging.FileHandler('analyzer.log', encoding='utf-8'),
-        logging.StreamHandler(sys.stdout),
-    ]
-)
 logger = logging.getLogger('gen_report')
-
-# ── AI 快取（spec/<vendor>/_ai_cache.json）──────────────────────
-_AI_CACHE_FILE = '_ai_cache.json'
-
-
-def _ai_cache_load(spec_dir: Path) -> dict:
-    """讀取 AI 分析快取。快取不存在時回傳空 dict。"""
-    cache_path = spec_dir / _AI_CACHE_FILE
-    if cache_path.exists():
-        try:
-            with open(cache_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            logger.info(f'[快取讀取] {cache_path}，共 {len(data)} 筆')
-            return data
-        except Exception as e:
-            logger.warning(f'[快取讀取失敗] {cache_path}：{e}，返回空快取')
-    return {}
-
-
-def _ai_cache_save(spec_dir: Path, cache: dict) -> None:
-    """寫回 AI 分析快取。"""
-    cache_path = spec_dir / _AI_CACHE_FILE
-    try:
-        with open(cache_path, 'w', encoding='utf-8') as f:
-            json.dump(cache, f, ensure_ascii=False, indent=2)
-        logger.info(f'[快取寫入] {cache_path}，共 {len(cache)} 筆')
-    except Exception as e:
-        logger.error(f'[快取寫入失敗] {cache_path}：{e}', exc_info=True)
-
 
 # 嘗試導入 message_analyzer（若 API key 未設定會失敗，但不中斷）
 try:
@@ -69,7 +31,6 @@ try:
 except Exception as e:
     _ANALYZER_AVAILABLE = False
     _ANALYZER_ERROR = str(e)
-    logger.warning(f'[AI 模組載入失敗] {e}')
 
 # ── 分類檔名 & 標題 ────────────────────────────────────────────
 CATEGORIES = [
@@ -80,6 +41,13 @@ CATEGORIES = [
     ('05_環境設定', '環境設定'),
     ('06_買賣交易', '買賣交易資訊'),
 ]
+
+# ── 雜訊過濾模式 ─────────────────────────────────────────────
+_URL_ONLY = re.compile(r'^https?://\S+$')
+_INVITATION_KWS = ['邀請加入', 'utm_source=invitati', '點選以下連結', 'join.line.me', '邀請你加入']
+_SALE_PREFIXES = re.compile(r'^(賣|售|出售|徵|WTB|WTS|收購|求購|換|交換)\s', re.IGNORECASE)
+_ENCHANT_LIST = re.compile(r'\+\d+\S+')
+_ARTICLE_CITE = re.compile(r'[（(][A-Za-z][A-Za-z\-]+[）)]')
 
 
 def _load_jsonl(path):
@@ -210,6 +178,22 @@ def _extract_keyword_entities(records):
     return entity_counts, entity_speakers, entity_records
 
 
+def _is_display_noise(content: str) -> bool:
+    """判斷訊息是否為顯示雜訊（不適合作為引言展示）。"""
+    s = content.strip()
+    if _URL_ONLY.match(s):
+        return True
+    if any(kw in s for kw in _INVITATION_KWS):
+        return True
+    if _SALE_PREFIXES.match(s):
+        return True
+    if len(_ENCHANT_LIST.findall(s)) >= 3:
+        return True
+    if _ARTICLE_CITE.search(s) and len(s) > 150:
+        return True
+    return False
+
+
 def _pick_informative(records, max_items=5):
     """挑選資訊性內容（非問句、有實質資訊、優先高可靠來源）。"""
     candidates = []
@@ -218,6 +202,8 @@ def _pick_informative(records, max_items=5):
         if not content or len(content) < 8:
             continue
         if _is_question(content):
+            continue
+        if _is_display_noise(content):
             continue
         candidates.append(r)
 
@@ -280,10 +266,11 @@ def _build_numeric_signal_lines(data_points, max_items=5):
 
 
 def _build_observation_summary(sub_name, analysis, meaningful_entities):
-    """輸出實際有價值的資訊片段，讓讀者直接知道具體條件與結果。"""
-    insights = analysis.get('insights', [])
+    """生成去識別的觀點摘要，避免輸出可追溯原句。"""
+    unique = analysis['unique']
     speakers = analysis['speakers']
     question_count = analysis['question_count']
+    declarative_count = max(0, unique - question_count)
 
     if speakers >= 10:
         speaker_label = '多數參與者'
@@ -292,25 +279,20 @@ def _build_observation_summary(sub_name, analysis, meaningful_entities):
     else:
         speaker_label = '少數參與者'
 
-    lines = []
+    lines = [
+        (
+            f'- {speaker_label}在「{sub_name}」議題提供 {declarative_count} 則敘述型訊號，'
+            f'提問型訊號 {question_count} 則，顯示社群以經驗回報為主。'
+        ),
+    ]
 
-    # 輸出實際資訊性內容（非問句），讓讀者看到真實的群友說法
-    if insights:
-        for r in insights[:6]:
-            content = _format_quote(r.get('content', ''), max_len=120)
-            if content:
-                lines.append(f'- 「{content}」')
+    if meaningful_entities:
+        top_entities = '、'.join(entity for entity, _ in meaningful_entities[:3])
+        lines.append(f'- 討論焦點集中在 {top_entities}，屬於此主題下的高頻關鍵面向。')
 
-    # 若沒有實質內容，才回退到統計摘要
-    if not lines:
-        declarative_count = max(0, analysis['unique'] - question_count)
-        lines.append(
-            f'- {speaker_label}在「{sub_name}」議題提供 {declarative_count} 則討論，'
-            f'提問型訊號 {question_count} 則。'
-        )
-        if meaningful_entities:
-            top_entities = '、'.join(entity for entity, _ in meaningful_entities[:3])
-            lines.append(f'- 討論焦點：{top_entities}')
+    numeric_lines = _build_numeric_signal_lines(analysis['data_points'], max_items=2)
+    if numeric_lines:
+        lines.append('- 數值訊號顯示此議題具有可量化討論，可作為後續策略與風險評估依據。')
 
     return lines
 
@@ -355,34 +337,132 @@ def _analyze_subcategory(sub_name, records):
     }
 
 
+# ── AI 快取 ────────────────────────────────────────────────────
+
+def _ai_cache_load(spec_dir: Path) -> dict:
+    """讀取 AI 分析快取。"""
+    cache_path = spec_dir / '_ai_cache.json'
+    if cache_path.exists():
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            logger.info(f'[快取讀取] {cache_path}，共 {len(data)} 筆')
+            return data
+        except Exception as e:
+            logger.warning(f'[快取讀取失敗] {cache_path}：{e}')
+    return {}
+
+
+def _ai_cache_save(spec_dir: Path, cache: dict):
+    """寫入 AI 分析快取。"""
+    cache_path = spec_dir / '_ai_cache.json'
+    try:
+        with open(cache_path, 'w', encoding='utf-8') as f:
+            json.dump(cache, f, ensure_ascii=False, indent=2)
+        logger.info(f'[快取寫入] {cache_path}，共 {len(cache)} 筆')
+    except Exception as e:
+        logger.warning(f'[快取寫入失敗] {cache_path}：{e}')
+
+
+# ── AI 快取 ────────────────────────────────────────────────────
+
+def _ai_cache_load(spec_dir: Path) -> dict:
+    """讀取 AI 分析快取。"""
+    cache_path = spec_dir / '_ai_cache.json'
+    if cache_path.exists():
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            logger.info(f'[快取讀取] {cache_path}，共 {len(data)} 筆')
+            return data
+        except Exception as e:
+            logger.warning(f'[快取讀取失敗] {cache_path}：{e}')
+    return {}
+
+
+def _ai_cache_save(spec_dir: Path, cache: dict):
+    """寫入 AI 分析快取。"""
+    cache_path = spec_dir / '_ai_cache.json'
+    try:
+        with open(cache_path, 'w', encoding='utf-8') as f:
+            json.dump(cache, f, ensure_ascii=False, indent=2)
+        logger.info(f'[快取寫入] {cache_path}，共 {len(cache)} 筆')
+    except Exception as e:
+        logger.warning(f'[快取寫入失敗] {cache_path}：{e}')
+
+
 # ── 報告產生器 ──────────────────────────────────────────────────
+
+def _compute_sub_analyses(
+    vendor_name, cat_file, cat_title, grouped, analyze, jsonl_path, ai_cache,
+):
+    """計算各子分類的結構化分析資料（Markdown 與 HTML 共用）。"""
+    sub_analyses = {}
+    for sub, recs in grouped.items():
+        analysis = _analyze_subcategory(sub, recs)
+        top_entities = analysis['entity_counts'].most_common(10)
+        meaningful_entities = [
+            (e, c) for e, c in top_entities if len(e) >= 2 and c >= 2
+        ]
+        quotes = _pick_informative(_deduplicate(recs), max_items=5)
+
+        ai_result = None
+        if analyze and _ANALYZER_AVAILABLE and ai_cache is not None:
+            cache_key = f'{cat_file}:{sub}'
+            jsonl_mtime = jsonl_path.stat().st_mtime if jsonl_path and jsonl_path.exists() else 0
+            cached = ai_cache.get(cache_key)
+            if cached and cached.get('jsonl_mtime') == jsonl_mtime:
+                ai_result = cached['result']
+                logger.info(f'[快取命中] {cache_key}')
+                print(f'      ↩ AI 快取命中：{cache_key}')
+            else:
+                messages = [r.get('content', '') for r in quotes if r.get('content')]
+                if messages:
+                    logger.info(f'[AI 請求] {cache_key}（首次分析）')
+                    ai_result = analyze_messages_batch(
+                        vendor_name, cat_title, sub, messages,
+                        speaker_count=analysis['speakers'],
+                    )
+                    if ai_result and ai_result.get('status') == 'success':
+                        ai_cache[cache_key] = {'jsonl_mtime': jsonl_mtime, 'result': ai_result}
+                    else:
+                        status = ai_result.get('status') if ai_result else 'None'
+                        logger.warning(f'[快取未寫入] {cache_key}，AI status={status}，訊息：')
+
+        sub_analyses[sub] = {
+            'records': recs,
+            'analysis': analysis,
+            'entities': meaningful_entities,
+            'quotes': quotes,
+            'ai_result': ai_result,
+        }
+    return sub_analyses
+
 
 def _generate_category_report(
     vendor_name, cat_file, cat_title, records, date_range,
     analyze=False, jsonl_path=None, ai_cache=None,
 ):
-    """產生單一分類的 Markdown 報告（分析總結式）。
-
-    Args:
-        analyze:    若 True，使用 Gemini AI 分析（消耗 token）
-        jsonl_path: 對應的 JSONL 來源路徑，用於快取 mtime 比對
-        ai_cache:   可變 dict，供快取讀寫（由 generate_reports 傳入並在結束後儲存）
-    """
-    if ai_cache is None:
-        ai_cache = {}
-    jsonl_mtime = jsonl_path.stat().st_mtime if jsonl_path and jsonl_path.exists() else None
+    """產生單一分類的 Markdown 報告。回傳 (markdown_str, sub_analyses)。"""
     grouped = _group_by_sub(records)
     total = len(records)
     all_speakers = set(r.get('nickname', '') for r in records if r.get('nickname'))
 
-    lines = []
-    lines.append(f'# {vendor_name} — {cat_title}整理\n')
-    lines.append(f'> 資料來源：LINE 群組（{date_range}）｜自動產生於 {datetime.now().strftime("%Y/%m/%d %H:%M")}')
-    lines.append(f'> 分析基礎：{total} 則訊息、{len(all_speakers)} 位發言者\n')
-    lines.append('---\n')
+    sub_analyses = _compute_sub_analyses(
+        vendor_name, cat_file, cat_title, grouped, analyze, jsonl_path, ai_cache,
+    )
 
-    # 摘要表格
-    lines.append('## 討論熱度\n')
+    lines = []
+    lines.append(f'# {vendor_name} — {cat_title}整理')
+    lines.append('')
+    lines.append(f'> 資料來源：LINE 群組（{date_range}）｜自動產生於 {datetime.now().strftime("%Y/%m/%d %H:%M")}')
+    lines.append(f'> 分析基礎：{total} 則訊息、{len(all_speakers)} 位發言者')
+    lines.append('')
+    lines.append('---')
+    lines.append('')
+
+    lines.append('## 討論熱度')
+    lines.append('')
     lines.append('| 子分類 | 討論量 | 發言者 | 佔比 |')
     lines.append('|--------|--------|--------|------|')
     for sub, recs in grouped.items():
@@ -391,27 +471,24 @@ def _generate_category_report(
         lines.append(f'| {sub} | {len(recs)} 則 | {spk} 人 | {pct:.0f}% |')
     lines.append('')
 
-    # 各子分類分析
     section_num = 1
     chinese_nums = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十']
-    sub_summaries = []  # 收集每個子分類的摘要供總結用
+    sub_summaries = []
 
-    for sub, recs in grouped.items():
+    for sub, data in sub_analyses.items():
+        analysis = data['analysis']
+        meaningful_entities = data['entities']
+        ai_result = data.get('ai_result')
+        quotes = data['quotes']
         cn = chinese_nums[section_num - 1] if section_num <= len(chinese_nums) else str(section_num)
-        lines.append(f'---\n')
-        lines.append(f'## {cn}、{sub}\n')
+        lines.append('---')
+        lines.append('')
+        lines.append(f'## {cn}、{sub}')
+        lines.append('')
 
-        analysis = _analyze_subcategory(sub, recs)
-
-        # 1. 熱門實體表格（若有明確實體）
-        top_entities = analysis['entity_counts'].most_common(10)
-        # 過濾掉太泛化的關鍵字（只保留具體實體）
-        meaningful_entities = [
-            (e, c) for e, c in top_entities
-            if len(e) >= 2 and c >= 2
-        ]
         if meaningful_entities:
-            lines.append('### 熱門關鍵字\n')
+            lines.append('### 熱門關鍵字')
+            lines.append('')
             lines.append('| 關鍵字 | 提及次數 | 討論人數 |')
             lines.append('|--------|----------|----------|')
             for entity, count in meaningful_entities[:8]:
@@ -419,81 +496,51 @@ def _generate_category_report(
                 lines.append(f'| {entity} | {count} | {spk_count} |')
             lines.append('')
 
-        # 2. 數值資料（若有）
-        if analysis['data_points']:
-            lines.append('### 數據信號摘要\n')
-            signal_lines = _build_numeric_signal_lines(analysis['data_points'])
-            for line in signal_lines:
-                lines.append(line)
-            lines.append('')
-
-        # 3. 重點資訊（經分析的關鍵判斷）
-        lines.append('### 群友經驗與觀點\n')
+        lines.append('### 群友經驗與觀點')
+        lines.append('')
         for line in _build_observation_summary(sub, analysis, meaningful_entities):
             lines.append(line)
+        lines.append('')
 
-        if analyze and _ANALYZER_AVAILABLE:
-            cache_key = f'{cat_file}:{sub}'
-            cached = ai_cache.get(cache_key, {})
-            cached_mtime = cached.get('jsonl_mtime')
-
-            if jsonl_mtime is not None and cached_mtime == jsonl_mtime and cached.get('result'):
-                # JSONL 未變動，直接使用快取結果
-                result = cached['result']
-                print(f'      ↩ AI 快取命中：{cache_key}')
-                logger.info(f'[快取命中] {cache_key}')
-            else:
-                reason = '首次分析' if not cached else 'JSONL 已更新'
-                logger.info(f'[AI 請求] {cache_key}（{reason}）')
-                # JSONL 有更新（或首次），送出 AI 請求
-                all_informative = _pick_informative(_deduplicate(recs), max_items=20)
-                real_messages = [r.get('content', '') for r in all_informative if r.get('content')]
-                result = analyze_messages_batch(
-                    vendor_name,
-                    cat_title,
-                    sub,
-                    real_messages,
-                    speaker_count=analysis['speakers'],
-                )
-                # 寫入快取（只快取成功結果）
-                if result.get('status') == 'success':
-                    ai_cache[cache_key] = {
-                        'jsonl_mtime': jsonl_mtime,
-                        'result': result,
-                    }
-                else:
-                    logger.warning(f'[快取未寫入] {cache_key}，AI status={result.get("status")}，訊息：{result.get("analysis", "")[:60]}')
-
-            if result.get('status') == 'success':
-                if result.get('title'):
-                    lines.append(f'\n**{result["title"]}**\n')
-                if result.get('analysis'):
-                    lines.append(result['analysis'])
-                if result.get('supplement'):
-                    lines.append(f'\n> {result["supplement"]}')
+        if ai_result and ai_result.get('status') == 'success':
+            lines.append('### AI 情報整理')
+            lines.append('')
+            if ai_result.get('title'):
+                lines.append(f'**{ai_result["title"]}**')
+                lines.append('')
+            for part in ai_result.get('analysis', '').split('\n'):
+                part = part.strip()
+                if part:
+                    lines.append(part)
+            if ai_result.get('supplement'):
+                lines.append(f'\n> **補充**：{ai_result["supplement"]}')
             lines.append('')
 
-        # 收集子分類摘要
+        if quotes:
+            lines.append('### 群友原話（節錄）')
+            lines.append('')
+            for q in quotes[:4]:
+                lines.append(f'- 「{_format_quote(q.get("content", ""), max_len=120)}」')
+            lines.append('')
+
         sub_summary = f'**{sub}**：{analysis["unique"]} 則不重複討論、{analysis["speakers"]} 人參與'
         if meaningful_entities:
             top3 = '、'.join(e for e, _ in meaningful_entities[:3])
             sub_summary += f'，熱門：{top3}'
         sub_summaries.append(sub_summary)
-
         section_num += 1
 
-    # ── 總體總結 ──
-    lines.append('---\n')
-    lines.append(f'## 總體總結\n')
-
-    # 各子分類概況
-    lines.append('### 各面向概況\n')
+    lines.append('---')
+    lines.append('')
+    lines.append('## 總體總結')
+    lines.append('')
+    lines.append('### 各面向概況')
+    lines.append('')
     for s in sub_summaries:
         lines.append(f'- {s}')
     lines.append('')
-
-    # 整體判斷
-    lines.append('### 整體判斷\n')
+    lines.append('### 整體判斷')
+    lines.append('')
     top_sub = list(grouped.keys())[0] if grouped else ''
     top_count = len(list(grouped.values())[0]) if grouped else 0
     top_pct = top_count / total * 100 if total else 0
@@ -501,30 +548,21 @@ def _generate_category_report(
         f'- 本分類共 **{total} 則**訊息、**{len(all_speakers)}** 位參與者，'
         f'最熱門子題為「{top_sub}」（佔 {top_pct:.0f}%）'
     )
-
-    # 日期分佈
     date_counts = Counter(r.get('date', '') for r in records if r.get('date'))
     if len(date_counts) > 1:
         peak_date, peak_count = date_counts.most_common(1)[0]
         lines.append(f'- 討論高峰：{peak_date}（{peak_count} 則）')
-
-    # 來源分佈
     src_counts = Counter(r.get('src', '') for r in records)
     if len(src_counts) > 1:
         src_parts = '、'.join(f'{s}({c}則)' for s, c in src_counts.most_common())
         lines.append(f'- 來源分佈：{src_parts}')
-
     lines.append('')
 
-    return '\n'.join(lines)
+    return '\n'.join(lines), sub_analyses
 
 
 def generate_reports(vendor_name, html=False, analyze=False):
-    """產生一個廠商的所有報告。
-    
-    Args:
-        analyze: 若 True，使用 Gemini AI 分析群友經驗與觀點（消耗 token）
-    """
+    """產生一個廠商的所有報告。"""
     vendor_cfg = get_vendor(vendor_name)
     spec_dir = vendor_cfg['spec_dir']
     report_dir = vendor_cfg['report_dir']
@@ -534,10 +572,11 @@ def generate_reports(vendor_name, html=False, analyze=False):
         print(f'  錯誤：找不到 {spec_dir}，請先執行 ingest.py')
         return
 
-    meta = _load_meta(spec_dir)
+    _load_meta(spec_dir)
     generated = 0
 
-    ai_cache = _ai_cache_load(spec_dir) if analyze else {}
+    # 載入 AI 快取（整個廠商共用）
+    ai_cache = _ai_cache_load(spec_dir) if analyze and _ANALYZER_AVAILABLE else {}
 
     for cat_file, cat_title in CATEGORIES:
         jsonl_path = spec_dir / f'{cat_file}.jsonl'
@@ -547,39 +586,35 @@ def generate_reports(vendor_name, html=False, analyze=False):
             continue
 
         date_range = _date_range_str(records)
-        md_content = _generate_category_report(
+        md_content, sub_analyses = _generate_category_report(
             vendor_cfg['name'], cat_file, cat_title, records, date_range,
             analyze=analyze, jsonl_path=jsonl_path, ai_cache=ai_cache,
         )
 
-        # 寫入 Markdown
         md_path = report_dir / f'{cat_file}.md'
         with open(md_path, 'w', encoding='utf-8') as f:
             f.write(md_content)
-        print(f'  ✓ {md_path.name}（{len(records)} 則）')
+        print(f'  \u2713 {md_path.name}（{len(records)} 則）')
         generated += 1
 
-        # 寫入 HTML
         if html:
             try:
-                import markdown
-                html_content = _wrap_html(
-                    markdown.markdown(md_content, extensions=['tables']),
-                    f'{vendor_cfg["name"]} — {cat_title}',
+                html_content = _build_category_html(
+                    vendor_cfg, cat_file, cat_title, records, date_range, sub_analyses,
                 )
                 html_path = report_dir / f'{cat_file}.html'
                 with open(html_path, 'w', encoding='utf-8') as f:
                     f.write(html_content)
                 print(f'    + {html_path.name}')
-            except ImportError:
-                print('    ⚠ 需要 markdown 套件才能產生 HTML：pip install markdown')
+            except Exception as e:
+                logger.error(f'HTML 產生失敗 {cat_file}: {e}', exc_info=True)
+                print(f'    ⚠ HTML 產生失敗：{e}')
 
-    # 產生總覽摘要
-    _generate_overview(vendor_cfg, spec_dir, report_dir, html=html)
-
-    # 儲存 AI 快取（只在 analyze 模式且有更新時寫入）
-    if analyze:
+    # 儲存 AI 快取
+    if analyze and _ANALYZER_AVAILABLE:
         _ai_cache_save(spec_dir, ai_cache)
+
+    _generate_overview(vendor_cfg, spec_dir, report_dir, html=html)
 
     print(f'  ── 共產生 {generated} 份報告')
 
@@ -956,6 +991,278 @@ tr:last-child td {{ border-bottom: 0; }}
     print(f'  ✓ {html_path.name}（儀表板）')
 
 
+# ── 分類報告 HTML（Stitch 風格） ─────────────────────────────────
+
+def _build_category_html(vendor_cfg, cat_file, cat_title, records, date_range, sub_analyses):
+    """產生 Stitch-inspired 卡片式分類報告 HTML。"""
+    from datetime import date as date_type
+
+    vendor_name = vendor_cfg['name']
+    generated_at = datetime.now().strftime('%Y/%m/%d %H:%M')
+    total = len(records)
+    all_speakers = len(set(r.get('nickname', '') for r in records if r.get('nickname')))
+
+    # ── 側欄子分類導覽 ──
+    nav_items = ''.join(
+        f'<a href="#sub-{i}" class="sub-link">{html_lib.escape(sub)}</a>'
+        for i, sub in enumerate(sub_analyses.keys())
+    )
+
+    # ── 分類導覽（左側） ──
+    cat_links = ''.join(
+        f'<a class="cat-link{" is-active" if cf == cat_file else ""}" href="{cf}.html">'
+        f'{html_lib.escape(ct)}</a>'
+        for cf, ct in CATEGORIES
+    )
+
+    # ── 廠商切換 ──
+    vendor_btns = ''.join(
+        f'<a class="vendor-btn{" is-active" if vn == vendor_name else ""}" '
+        f'href="../{vn}/00_總覽.html">{html_lib.escape(vn)}</a>'
+        for vn in list_publish_vendors()
+    )
+
+    # ── 子分類卡片 ──
+    cards_html = []
+    for i, (sub, data) in enumerate(sub_analyses.items()):
+        analysis    = data['analysis']
+        entities    = data['entities']
+        quotes      = data['quotes']
+        ai_result   = data.get('ai_result')
+        recs        = data['records']
+        speakers    = analysis['speakers']
+        unique      = analysis['unique']
+
+        # 可信度
+        if speakers >= 10:
+            conf_text, conf_cls = f'高可信（{speakers} 人）', 'conf-high'
+        elif speakers >= 4:
+            conf_text, conf_cls = f'中可信（{speakers} 人）', 'conf-mid'
+        else:
+            conf_text, conf_cls = f'小樣本（{speakers} 人）', 'conf-low'
+
+        # 資料新鮮度
+        dates_sub = sorted(set(r['date'] for r in recs if r.get('date')))
+        freshness_html = ''
+        if dates_sub:
+            try:
+                latest = datetime.strptime(dates_sub[-1], '%Y-%m-%d').date()
+                days_ago = (date_type.today() - latest).days
+                if days_ago <= 3:
+                    freshness_html = '<span class="fresh-chip fresh-recent">近 3 日</span>'
+                elif days_ago <= 7:
+                    freshness_html = '<span class="fresh-chip fresh-week">近 1 週</span>'
+                elif days_ago <= 14:
+                    freshness_html = '<span class="fresh-chip fresh-fortnight">近 2 週</span>'
+                else:
+                    freshness_html = f'<span class="fresh-chip fresh-old">{days_ago} 天前</span>'
+            except ValueError:
+                pass
+
+        # 關鍵字 chips
+        chips_html = ''
+        if entities:
+            chips = ''.join(
+                f'<span class="chip">{html_lib.escape(e)} <em>×{c}</em></span>'
+                for e, c in entities[:8]
+            )
+            chips_html = f'<div class="keyword-chips">{chips}</div>'
+
+        # AI 分析區塊
+        def _md_to_html(text: str) -> str:
+            """Escape HTML then convert **bold** and newlines."""
+            escaped = html_lib.escape(text)
+            escaped = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', escaped)
+            return escaped
+
+        ai_html = ''
+        if ai_result and ai_result.get('status') == 'success':
+            title_esc = html_lib.escape(ai_result.get('title', ''))
+            items = [
+                l.strip().lstrip('•-').strip()
+                for l in ai_result.get('analysis', '').split('\n') if l.strip()
+            ]
+            items_html = ''.join(f'<li>{_md_to_html(it)}</li>' for it in items if it)
+            sup_html = ''
+            if ai_result.get('supplement'):
+                sup_text = _md_to_html(ai_result['supplement']).replace('\n', '<br>')
+                sup_html = (
+                    f'<div class="ai-supplement">'
+                    f'⚠ {sup_text}</div>'
+                )
+            ai_html = (
+                f'<div class="ai-block">'
+                f'<div class="ai-block-header"><span class="ai-badge">AI 情報整理</span></div>'
+                f'<div class="ai-title">{title_esc}</div>'
+                f'<ul class="ai-list">{items_html}</ul>'
+                f'{sup_html}</div>'
+            )
+
+        # 群友引言
+        quotes_html = ''
+        if quotes:
+            q_items = ''.join(
+                f'<blockquote>{html_lib.escape(_format_quote(q.get("content", ""), 130))}</blockquote>'
+                for q in quotes[:4]
+            )
+            quotes_html = (
+                f'<div class="quotes-section">'
+                f'<div class="quotes-title">群友原話（節錄）</div>'
+                f'{q_items}</div>'
+            )
+
+        cards_html.append(f'''<article class="sub-card" id="sub-{i}">
+  <header class="card-header">
+    <div class="card-title">{html_lib.escape(sub)}</div>
+    <div class="card-badges">
+      <span class="badge-count">{len(recs)} 則</span>
+      <span class="badge-speakers">{unique} 不重複</span>
+      <span class="badge {conf_cls}">{html_lib.escape(conf_text)}</span>
+      {freshness_html}
+    </div>
+  </header>
+  {chips_html}
+  {ai_html}
+  {quotes_html}
+</article>''')
+
+    return f'''<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{html_lib.escape(vendor_name)} — {html_lib.escape(cat_title)}</title>
+<style>
+:root{{
+  --sidebar-bg:#13303a;--sidebar-hover:#1e4655;--sidebar-active:#2a7f6c;
+  --brand:#2a7f6c;--brand-2:#1e5f88;
+  --brand-grad:linear-gradient(120deg,var(--brand) 0%,var(--brand-2) 100%);
+  --page-bg:#f1f5f8;--card-bg:#fff;--card-border:#d7e3e8;
+  --card-shadow:0 2px 12px rgba(15,35,45,.07);
+  --card-shadow-hover:0 6px 24px rgba(15,35,45,.13);
+  --text:#1a2b34;--text-sub:#4d6168;--radius:16px;--radius-sm:10px;
+}}
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif;color:var(--text);background:var(--page-bg);line-height:1.7}}
+.layout{{display:grid;grid-template-columns:240px 1fr;min-height:100vh}}
+.sidebar{{background:var(--sidebar-bg);color:#c8dde5;position:sticky;top:0;height:100vh;overflow-y:auto;display:flex;flex-direction:column}}
+.sidebar-top{{padding:18px 16px 12px;border-bottom:1px solid rgba(255,255,255,.08)}}
+.back-link{{display:inline-block;color:#80b0bd;text-decoration:none;font-size:.85rem;margin-bottom:8px}}
+.back-link:hover{{color:#c8dde5}}
+.sidebar-vendor{{font-size:.78rem;color:#80b0bd;margin-bottom:2px}}
+.sidebar-cat{{font-size:1.1rem;font-weight:700;color:#e8f4f8}}
+.sidebar-section-label{{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:#6090a0;padding:12px 16px 4px}}
+.sub-link{{display:block;padding:7px 16px;color:#a8c8d5;text-decoration:none;font-size:.9rem;border-left:3px solid transparent;transition:all .15s ease}}
+.sub-link:hover{{background:var(--sidebar-hover);color:#e8f4f8;border-left-color:var(--brand)}}
+.sub-link.is-active{{background:rgba(42,127,108,.25);color:#6fdbb8;border-left-color:var(--brand)}}
+.cat-nav{{border-top:1px solid rgba(255,255,255,.08);padding:8px 0}}
+.cat-link{{display:block;padding:6px 16px;color:#7aa0b0;text-decoration:none;font-size:.85rem;transition:color .12s}}
+.cat-link:hover{{color:#c8dde5}}
+.cat-link.is-active{{color:#6fdbb8;font-weight:700}}
+.sidebar-footer{{margin-top:auto;padding:12px 16px;border-top:1px solid rgba(255,255,255,.08);font-size:.78rem;color:#5a8090}}
+.main{{padding:20px 22px 32px;max-width:900px}}
+.topbar{{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px}}
+.topbar-title{{font-size:1.35rem;font-weight:700;color:var(--text)}}
+.vendor-switch{{display:flex;flex-wrap:wrap;gap:6px}}
+.vendor-btn{{display:inline-block;text-decoration:none;color:#1a3c48;background:#eff6f9;border:1px solid #d3e1e8;border-radius:999px;padding:4px 12px;font-size:.85rem;font-weight:700}}
+.vendor-btn.is-active{{color:#fff;background:var(--brand);border-color:var(--brand)}}
+.summary-bar{{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}}
+.summary-kpi{{background:#fff;border:1px solid var(--card-border);border-radius:var(--radius-sm);padding:7px 13px;font-size:.88rem;color:var(--text-sub)}}
+.summary-kpi strong{{color:var(--text);font-size:1.02rem}}
+.sub-card{{background:var(--card-bg);border:1px solid var(--card-border);border-radius:var(--radius);box-shadow:var(--card-shadow);margin-bottom:16px;overflow:hidden;transition:box-shadow .2s ease}}
+.sub-card:hover{{box-shadow:var(--card-shadow-hover)}}
+.card-header{{display:flex;align-items:center;justify-content:space-between;padding:11px 16px;background:var(--brand-grad);color:#fff;gap:8px;flex-wrap:wrap}}
+.card-title{{font-size:1.04rem;font-weight:700;letter-spacing:.02em}}
+.card-badges{{display:flex;gap:5px;flex-wrap:wrap;align-items:center}}
+.badge-count,.badge-speakers{{background:rgba(255,255,255,.2);border-radius:999px;padding:2px 9px;font-size:.8rem;font-weight:600}}
+.badge{{border-radius:999px;padding:2px 9px;font-size:.78rem;font-weight:700}}
+.conf-high{{background:#16a34a}}
+.conf-mid{{background:#ca8a04}}
+.conf-low{{background:#6b7280}}
+.fresh-chip{{border-radius:999px;padding:2px 9px;font-size:.78rem;font-weight:600}}
+.fresh-recent{{background:#10b981;color:#fff}}
+.fresh-week{{background:#3b82f6;color:#fff}}
+.fresh-fortnight{{background:#f59e0b;color:#fff}}
+.fresh-old{{background:#9ca3af;color:#fff}}
+.keyword-chips{{display:flex;flex-wrap:wrap;gap:5px;padding:9px 14px;background:#f5fbf9;border-bottom:1px solid #e8f0ee}}
+.chip{{background:#daeee9;color:#0f4c40;border:1px solid #b8ddd7;border-radius:999px;padding:3px 10px;font-size:.83rem}}
+.chip em{{font-style:normal;color:#2a7f6c;font-weight:700}}
+.ai-block{{margin:12px 14px;background:linear-gradient(135deg,#eef6ff 0%,#edfcf5 100%);border:1px solid #93c5fd;border-left:4px solid #2563eb;border-radius:12px;padding:12px 14px}}
+.ai-block-header{{display:flex;align-items:center;gap:8px;margin-bottom:6px}}
+.ai-badge{{background:#2563eb;color:#fff;border-radius:999px;padding:2px 10px;font-size:.78rem;font-weight:700;letter-spacing:.05em}}
+.ai-title{{font-weight:700;color:#1e3a5f;margin-bottom:6px;font-size:.97rem;line-height:1.45}}
+.ai-list{{padding-left:16px;color:var(--text)}}
+.ai-list li{{margin-bottom:5px;font-size:.92rem;line-height:1.65}}
+.ai-supplement{{margin-top:8px;padding:7px 11px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.35);border-radius:8px;font-size:.88rem;color:#7c4e0a}}
+.quotes-section{{padding:10px 14px 14px}}
+.quotes-title{{font-size:.82rem;font-weight:700;color:var(--text-sub);letter-spacing:.03em;margin-bottom:7px}}
+.quotes-section blockquote{{margin:0 0 7px;padding:7px 11px;background:#f8fafb;border-left:3px solid #93c5fd;border-radius:0 8px 8px 0;color:#2a3a40;font-size:.9rem;line-height:1.6}}
+.report-footer{{margin-top:10px;font-size:.82rem;color:#7a909a;text-align:center;padding:12px 0 0;border-top:1px solid var(--card-border)}}
+@media(max-width:780px){{
+  .layout{{grid-template-columns:1fr}}
+  .sidebar{{position:static;height:auto}}
+  .main{{padding:14px 12px 24px}}
+  .card-header{{flex-direction:column;align-items:flex-start}}
+}}
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="sidebar-top">
+      <a href="00_總覽.html" class="back-link">← 總覽</a>
+      <div class="sidebar-vendor">{html_lib.escape(vendor_name)}</div>
+      <div class="sidebar-cat">{html_lib.escape(cat_title)}</div>
+    </div>
+    <div class="sidebar-section-label">子分類</div>
+    {nav_items}
+    <div class="cat-nav">
+      <div class="sidebar-section-label">所有分類</div>
+      {cat_links}
+    </div>
+    <div class="sidebar-footer">
+      資料：{date_range}<br>
+      產生：{generated_at}
+    </div>
+  </aside>
+  <main class="main">
+    <div class="topbar">
+      <div class="topbar-title">{html_lib.escape(cat_title)}整理</div>
+      <nav class="vendor-switch">{vendor_btns}</nav>
+    </div>
+    <div class="summary-bar">
+      <div class="summary-kpi"><strong>{total:,}</strong> 則訊息</div>
+      <div class="summary-kpi"><strong>{all_speakers}</strong> 位發言者</div>
+      <div class="summary-kpi">資料期間 <strong>{date_range}</strong></div>
+      <div class="summary-kpi">共 <strong>{len(sub_analyses)}</strong> 個子主題</div>
+    </div>
+    {''.join(cards_html)}
+    <footer class="report-footer">
+      {html_lib.escape(vendor_cfg.get('full_name', vendor_name))} ｜
+      自動產生於 {generated_at}
+    </footer>
+  </main>
+</div>
+<script>
+(function(){{
+  const links=document.querySelectorAll('.sub-link');
+  const cards=[...links].map(l=>document.querySelector(l.getAttribute('href')));
+  const obs=new IntersectionObserver(entries=>{{
+    entries.forEach(e=>{{
+      if(e.isIntersecting){{
+        links.forEach(l=>l.classList.remove('is-active'));
+        const idx=cards.indexOf(e.target);
+        if(idx>=0)links[idx].classList.add('is-active');
+      }}
+    }});
+  }},{{threshold:0.3}});
+  cards.forEach(c=>c&&obs.observe(c));
+}})();
+</script>
+</body>
+</html>'''
+
+
 def _wrap_html(body_html, title):
     """包裝 HTML 內容。"""
     return f"""<!DOCTYPE html>
@@ -1165,6 +1472,18 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # ── Logging 設定 ──
+    log_level = logging.INFO
+    handlers = [logging.StreamHandler(sys.stdout)]
+    log_file = Path('analyzer.log')
+    handlers.append(logging.FileHandler(log_file, encoding='utf-8'))
+    logging.basicConfig(
+        level=log_level,
+        format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+        handlers=handlers,
+    )
 
     if args.analyze and not _ANALYZER_AVAILABLE:
         print('⚠ 警告：AI 分析不可用')
