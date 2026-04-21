@@ -9,7 +9,9 @@ from __future__ import annotations
 import os
 import re
 import shutil
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+
+TZ_TAIPEI = timezone(timedelta(hours=8))
 from pathlib import Path
 
 from vendor_config import list_publish_vendors
@@ -151,7 +153,7 @@ def _build_sitemap_content(base_url: str, paths: list[str]) -> str:
 
 
 def _write_index(vendor_links: list[tuple[str, str]]) -> None:
-    generated_at = datetime.now().strftime("%Y-%m-%d")
+    generated_at = datetime.now(TZ_TAIPEI).strftime("%Y-%m-%d")
     contact_email = os.getenv("PUBLIC_CONTACT_EMAIL", "未設定，請於 Repository Variables 設定 PUBLIC_CONTACT_EMAIL")
     contact_html = (
         f'<a href="mailto:{contact_email}">{contact_email}</a>'

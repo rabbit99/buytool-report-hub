@@ -16,7 +16,9 @@ import argparse
 import sys
 from pathlib import Path
 from collections import defaultdict, Counter
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+TZ_TAIPEI = timezone(timedelta(hours=8))
 
 import logging
 
@@ -465,7 +467,7 @@ def _generate_category_report(
     lines = []
     lines.append(f'# {vendor_name} — {cat_title}整理')
     lines.append('')
-    lines.append(f'> 資料來源：LINE 群組（{date_range}）｜自動產生於 {datetime.now().strftime("%Y/%m/%d %H:%M")}')
+    lines.append(f'> 資料來源：LINE 群組（{date_range}）｜自動產生於 {datetime.now(TZ_TAIPEI).strftime("%Y/%m/%d %H:%M")}')
     lines.append(f'> 分析基礎：{total} 則訊息、{len(all_speakers)} 位發言者')
     lines.append('')
     lines.append('---')
@@ -638,7 +640,7 @@ def _generate_overview(vendor_cfg, spec_dir, report_dir, html=False):
     lines = []
     lines.append(f'# {vendor_cfg["name"]} — 分析總覽\n')
     lines.append(f'> 群組：{vendor_cfg["full_name"]}')
-    lines.append(f'> 自動產生於 {datetime.now().strftime("%Y/%m/%d %H:%M")}\n')
+    lines.append(f'> 自動產生於 {datetime.now(TZ_TAIPEI).strftime("%Y/%m/%d %H:%M")}\n')
 
     if meta:
         lines.append('## 資料涵蓋範圍\n')
@@ -685,7 +687,7 @@ def _generate_overview(vendor_cfg, spec_dir, report_dir, html=False):
 
 def _generate_overview_dashboard_html(vendor_cfg, report_dir, meta, category_stats, sources_cfg):
     """產生 Stitch 風格儀表板總覽 HTML（與分類報告共用設計系統）。"""
-    generated_at = datetime.now().strftime('%Y/%m/%d %H:%M')
+    generated_at = datetime.now(TZ_TAIPEI).strftime('%Y/%m/%d %H:%M')
     vendor_name = vendor_cfg['name']
     total_categories = len([c for c in category_stats if c['count'] > 0])
     total_messages = sum(c['count'] for c in category_stats)
@@ -907,7 +909,7 @@ def _build_category_html(vendor_cfg, cat_file, cat_title, records, date_range, s
     from datetime import date as date_type
 
     vendor_name = vendor_cfg['name']
-    generated_at = datetime.now().strftime('%Y/%m/%d %H:%M')
+    generated_at = datetime.now(TZ_TAIPEI).strftime('%Y/%m/%d %H:%M')
     total = len(records)
     all_speakers = len(set(r.get('nickname', '') for r in records if r.get('nickname')))
 
