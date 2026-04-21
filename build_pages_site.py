@@ -30,6 +30,27 @@ def _clean_output() -> None:
 PUBLISH_EXCLUDED_CATEGORIES: set[str] = {"06_買賣交易"}
 
 
+def _build_excluded_link_pattern() -> re.Pattern[str]:
+    alts = "|".join(re.escape(c) + r"\.html" for c in PUBLISH_EXCLUDED_CATEGORIES)
+    return re.compile(r'<a\b[^>]*\bhref="(?:' + alts + r')"[^>]*>.*?</a>', re.DOTALL)
+
+_EXCLUDED_LINK_RE: re.Pattern[str] = _build_excluded_link_pattern()
+
+
+def _strip_excluded_links(html: str) -> str:
+    """Remove anchor tags pointing to excluded category files from HTML."""
+    return _EXCLUDED_LINK_RE.sub("", html)
+
+
+def _post_process_vendor_html(vendor_dst: Path) -> None:
+    """Sanitize all HTML files in a vendor publish directory."""
+    for html_file in vendor_dst.rglob("*.html"):
+        original = html_file.read_text(encoding="utf-8")
+        cleaned = _strip_excluded_links(original)
+        if cleaned != original:
+            html_file.write_text(cleaned, encoding="utf-8")
+
+
 def _copy_vendor_reports() -> list[tuple[str, str]]:
   links: list[tuple[str, str]] = []
   for vendor in list_publish_vendors():
@@ -49,6 +70,7 @@ def _copy_vendor_reports() -> list[tuple[str, str]]:
         shutil.copytree(item, dst / item.name)
       else:
         shutil.copy2(item, dst / item.name)
+    _post_process_vendor_html(dst)
     if (dst / "00_總覽.html").exists():
       links.append((vendor, f"./{vendor}/00_總覽.html"))
   return links

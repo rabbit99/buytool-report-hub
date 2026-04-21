@@ -1115,7 +1115,7 @@ body{{font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif;color:var(--tex
     </div>
   </aside>
   <main class="main">
-    <div class="notice-bar">本站內容為玩家社群討論之自動化彙整，僅供資訊參考。本站不鼓勵、不協助任何違反遊戲服務條款或相關法規之行為。<a href="../../legal/disclaimer.html">閱讀完整免責聲明</a></div>
+    <div class="notice-bar">本站內容為玩家社群討論之自動化彙整，僅供資訊參考。本站不鼓勵、不協助任何違反遊戲服務條款或相關法規之行為。<a href="../legal/disclaimer.html">閱讀完整免責聲明</a></div>
     <div class="topbar">
       <div class="topbar-title">{html_lib.escape(cat_title)}整理</div>
       <nav class="vendor-switch">{vendor_btns}</nav>
