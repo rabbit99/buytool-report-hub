@@ -96,8 +96,16 @@
       "msg_count": 5528,
       "new_records": 0,
       "ingested_at": "2026-04-21T16:54:39"
+    },
+    {
+      "file": "[LINE]天堂經典版TW機器熊仿真瓜瓜群.txt",
+      "min_date": "2026-04-17",
+      "max_date": "2026-04-18",
+      "msg_count": 5528,
+      "new_records": 0,
+      "ingested_at": "2026-04-22T01:45:36"
     }
   ],
   "total_messages": 1666,
-  "last_updated": "2026-04-21T16:54:39"
+  "last_updated": "2026-04-22T01:45:36"
 }

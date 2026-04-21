@@ -176,8 +176,24 @@
       "msg_count": 11405,
       "new_records": 0,
       "ingested_at": "2026-04-21T16:54:38"
+    },
+    {
+      "file": "[LINE]天堂經典版特工交流群.txt",
+      "min_date": "2026-04-11",
+      "max_date": "2026-04-21",
+      "msg_count": 23542,
+      "new_records": 0,
+      "ingested_at": "2026-04-22T01:45:34"
+    },
+    {
+      "file": "[LINE]天堂經典版特工付費用戶群.txt",
+      "min_date": "2026-04-18",
+      "max_date": "2026-04-21",
+      "msg_count": 11405,
+      "new_records": 0,
+      "ingested_at": "2026-04-22T01:45:35"
     }
   ],
   "total_messages": 7757,
-  "last_updated": "2026-04-21T16:54:38"
+  "last_updated": "2026-04-22T01:45:35"
 }

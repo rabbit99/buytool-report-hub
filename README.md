@@ -12,21 +12,30 @@
 ```
 BuyTool/
 ├── txt/                         ← LINE 匯出的 .txt（按廠商分資料夾）
-│   ├── 交易群/                  ← 交易討論群
-│   ├── 特工/                    ← 特工交流群
-│   └── 機器熊/                  ← 機器熊交流群
-├── reports/                     ← 分析報告（按廠商分資料夾）
-│   ├── 特工/                    ← 特工的 6 份報告（.md / .html）
-│   └── 機器熊/                  ← 機器熊的 6 份報告
-├── out/                         ← Excel 報表輸出（按廠商分資料夾）
+│   ├── 交易群/
 │   ├── 特工/
 │   └── 機器熊/
-├── analyze.py                   ← 交易分析主程式
-├── analyze_guide.py             ← 外掛群分類分析（多廠商）
-├── vendor_config.py             ← 廠商設定檔（新增廠商在此）
-├── export_pdf.py                ← 報告匯出（MD → HTML / DOCX）
-├── requirements.txt
-└── README.md
+├── spec/                        ← 解析後的 JSONL + AI 快取（git tracked）
+│   ├── 特工/
+│   │   ├── _meta.json
+│   │   ├── _ai_cache.json       ← AI 分析快取
+│   │   └── 01_掛機攻略.jsonl ...
+│   └── 機器熊/
+├── reports/                     ← 產生的 .md / .html 報告（本地）
+│   ├── 特工/
+│   └── 機器熊/
+├── site_publish/                ← GitHub Pages 發布內容（build 產出）
+├── site_static/                 ← 靜態頁面原始檔（legal 頁面等）
+├── scripts/
+│   └── check_site_links.py      ← 站點驗證工具（含 --live 驗正式網址）
+├── ingest.py                    ← 解析 txt → 寫入 spec/ JSONL
+├── gen_report.py                ← 從 spec/ + AI 快取產生 HTML/MD 報告
+├── build_pages_site.py          ← 打包 site_publish/（排除敏感分類）
+├── message_analyzer.py          ← Gemini AI 子分類分析
+├── vendor_config.py             ← 廠商設定檔
+├── analyze.py                   ← 交易分析（Excel 輸出）
+├── analyze_guide.py             ← 舊版外掛群分析
+└── requirements.txt
 ```
 
 ### 新增廠商
@@ -57,6 +66,22 @@ BuyTool/
    - 特工交流群 → `txt/特工/`
    - 機器熊交流群 → `txt/機器熊/`
 3. 每次有新的聊天匯出，**直接覆蓋舊檔案**或**新增檔案**即可
+
+---
+
+## 日常工作流程（npm 指令）
+
+```powershell
+npm run update          # ingest + report（無 AI，最快）
+npm run update:ai       # ingest + AI report（需設定 GEMINI_API_KEY）
+npm run site:build      # 打包 site_publish/
+npm run site:check      # 驗證本地站點連結與內容
+npm run site:qa         # report + site:build + site:check 一次完成
+npm run site:preview    # 本地預覽 http://localhost:5500
+
+# 驗證正式網址（部署後使用）
+python scripts\check_site_links.py --live https://rabbit99.github.io/buytool-report-hub
+```
 
 ---
 
@@ -192,60 +217,36 @@ py export_pdf.py                          # 匯出所有廠商的報告
 
 本專案已提供 release 分支自動部署流程：
 
-1. 當 `release` 分支有新 commit 時，GitHub Actions 會自動執行：
-    - `python ingest.py --all`
-    - `python gen_report.py --all --html`
-    - `python build_pages_site.py`
-2. 產出的站點內容會部署到 GitHub Pages。
-3. 站點打包腳本會同時生成：
-   - `robots.txt`（爬蟲規則）
-   - `sitemap.xml`（搜尋引擎地圖）
+CI workflow（`.github/workflows/deploy-pages.yml`）由 **手動觸發**（`workflow_dispatch`），執行順序：
+1. `python ingest.py --all` — 解析 txt 匯入 spec/
+2. `python gen_report.py --all --html` — 從 spec/ + AI 快取產生 HTML 報告
+3. `python build_pages_site.py` — 打包成 site_publish/（排除 06_買賣交易）
+4. 部署到 GitHub Pages
 
-### 首次啟用
+### 觸發部署
 
-1. 到 GitHub Repository → Settings → Pages
-2. Build and deployment 選擇 `GitHub Actions`
-3. 確認預設分支中已有 `.github/workflows/deploy-pages.yml`
-4. push 到 `release` 分支後等待 Actions 完成
+```powershell
+npm run release:push         # 只推送目前 HEAD 到 release
+npm run release:mvp          # ingest + report + push（無 AI）
+npm run release:mvp:ai       # ingest + AI report + push（需 GEMINI_API_KEY）
+npm run deploy:manual        # 直接觸發 GitHub Actions workflow（不推送）
+```
 
-### Repository Variables（建議設定）
-
-在 GitHub Repository → Settings → Secrets and variables → Actions → Variables 新增：
-
-- `SITE_BASE_URL`：你的網站完整網址（例如 `https://<user>.github.io/<repo>`）
-- `PUBLIC_CONTACT_EMAIL`：公開站務聯絡信箱
-
-若未設定，系統會使用預設值。
+1. GitHub Repository → Settings → Pages → Build and deployment → `GitHub Actions`
+2. 確認 `.github/workflows/deploy-pages.yml` 已在 release 分支
+3. 在 Settings → Secrets and variables → Actions → **Variables** 新增：
+   - `SITE_BASE_URL`：網站完整網址（如 `https://<user>.github.io/<repo>`）
+   - `PUBLIC_CONTACT_EMAIL`：公開站務聯絡信箱
 
 ### 公開站內容
 
-- 首頁：`index.html`（廠商報告入口）
-- 報告：`/<廠商>/00_總覽.html` 與各分類頁
-- 法務與風險頁：
-   - `/legal/disclaimer.html`
-   - `/legal/privacy.html`
-   - `/legal/risk-disclosure.html`
+- 首頁：`index.html`
+- 報告：`/<廠商>/00_總覽.html` 及各分類頁
+- `06_買賣交易` 分類**不公開**（`build_pages_site.py` 自動排除）
+- 法務頁：`/legal/disclaimer.html`、`/legal/privacy.html`、`/legal/risk-disclosure.html`
 
-### 發布節奏
-
-- 以 `release` 分支 commit 為發布節點。
-- 建議流程：
-   1. 在 `master` 完成開發與驗證
-   2. 合併/挑選到 `release`
-   3. push 觸發自動部署
-
-### 一鍵 release npm 指令
-
-```powershell
-# 不用 AI：更新資料後直接推送到 release（觸發 GitHub Pages）
-npm run release:mvp
-
-# 用 AI：更新資料 + AI 分析後推送 release
-npm run release:mvp:ai
-```
-
-策略說明：
+### 發布策略
 
 - `master`：開發與驗證
-- `release`：對外發布分支
-- npm 指令會把目前分支的 HEAD 推到 `release`（`git push origin HEAD:release`）
+- `release`：對外發布分支（`npm run release:push` 推送）
+- GitHub Actions workflow 為手動觸發（`npm run deploy:manual`）

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import argparse
 import re
 import sys
+import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import unquote
@@ -145,10 +147,22 @@ def check_content(site_dir: Path) -> list[str]:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Validate site_publish or live Pages site.")
+    parser.add_argument(
+        "--live",
+        metavar="BASE_URL",
+        help="Also fetch and validate the live Pages site at BASE_URL (e.g. https://rabbit99.github.io/buytool-report-hub)",
+    )
+    args = parser.parse_args()
+
     broken, policy_issues = validate_site_links()
     content_issues = check_content(SITE_DIR)
+    live_issues: list[str] = []
 
-    all_issues = [*broken, *policy_issues, *content_issues]
+    if args.live:
+        live_issues = validate_live_site(args.live.rstrip("/"))
+
+    all_issues = [*broken, *policy_issues, *content_issues, *live_issues]
 
     if broken:
         print("[ERROR] Broken links detected:")
@@ -165,13 +179,67 @@ def main() -> None:
         for item in content_issues:
             print(f"- {item}")
 
+    if live_issues:
+        print("[ERROR] Live site issues detected:")
+        for item in live_issues:
+            print(f"- {item}")
+
     if all_issues:
         raise SystemExit(1)
 
-    counts = {
-        "html": len(list(_iter_html_files(SITE_DIR))),
-    }
-    print(f"[OK] Site validation passed — {counts['html']} HTML pages checked, no issues.")
+    counts = {"html": len(list(_iter_html_files(SITE_DIR)))}
+    live_note = f" + live site validated" if args.live else ""
+    print(f"[OK] Site validation passed — {counts['html']} HTML pages checked{live_note}, no issues.")
+
+
+# ---------------------------------------------------------------------------
+# Live site validation
+# ---------------------------------------------------------------------------
+
+# Pages to spot-check on the live site: (url_path, checks)
+# checks is a list of strings that MUST appear in the fetched HTML
+_LIVE_SPOT_CHECKS: list[tuple[str, list[str]]] = [
+    ("/%E7%89%B9%E5%B7%A5/01_%E6%8E%9B%E6%A9%9F%E6%94%BB%E7%95%A5.html",  ["ai-badge", "AI \u60c5\u5831\u6574\u7406"]),
+    ("/%E7%89%B9%E5%B7%A5/00_%E7%B8%BD%E8%A6%BD.html",                     ["notice-bar"]),
+    ("/%E6%A9%9F%E5%99%A8%E7%86%8A/01_%E6%8E%9B%E6%A9%9F%E6%94%BB%E7%95%A5.html", ["ai-badge", "AI \u60c5\u5831\u6574\u7406"]),
+    ("/%E6%A9%9F%E5%99%A8%E7%86%8A/00_%E7%B8%BD%E8%A6%BD.html",            ["notice-bar"]),
+    ("/index.html",                                                          ["vendor-card"]),
+    ("/legal/disclaimer.html",                                               ["\u4e0d\u9f13\u52f5"]),
+]
+
+# Strings that must NOT appear anywhere in live pages
+_LIVE_FORBIDDEN: list[str] = ["@622tofsr", "@167cwdek", "06_買賣交易.html", "交易群"]
+
+
+def _fetch_url(url: str, timeout: int = 15) -> str | None:
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "buytool-site-checker/1.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read().decode("utf-8", errors="ignore")
+    except Exception as exc:
+        return None
+
+
+def validate_live_site(base_url: str) -> list[str]:
+    """Fetch key pages from the live site and check for required/forbidden content."""
+    issues: list[str] = []
+
+    for path, required_tokens in _LIVE_SPOT_CHECKS:
+        url = base_url + path
+        html = _fetch_url(url)
+        if html is None:
+            issues.append(f"live: failed to fetch {url}")
+            continue
+
+        for token in required_tokens:
+            if token not in html:
+                issues.append(f"live: '{token}' missing in {path}")
+
+        for forbidden in _LIVE_FORBIDDEN:
+            if forbidden in html:
+                issues.append(f"live: forbidden content '{forbidden}' found in {path}")
+
+    return issues
 
 
 if __name__ == "__main__":

@@ -88,8 +88,16 @@
       "msg_count": 39832,
       "new_records": 0,
       "ingested_at": "2026-04-21T16:54:44"
+    },
+    {
+      "file": "[LINE]天堂經典版：冥王黑帝斯交易討論群.txt",
+      "min_date": "2026-02-26",
+      "max_date": "2026-03-12",
+      "msg_count": 39832,
+      "new_records": 0,
+      "ingested_at": "2026-04-22T01:45:42"
     }
   ],
   "total_messages": 10853,
-  "last_updated": "2026-04-21T16:54:44"
+  "last_updated": "2026-04-22T01:45:42"
 }
