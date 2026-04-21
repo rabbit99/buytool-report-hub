@@ -125,181 +125,139 @@ def _write_index(vendor_links: list[tuple[str, str]]) -> None:
     )
     update_items = _load_update_history()
 
-    cards = []
-    for name, link in vendor_links:
-        cards.append(
-            f"<a class='card' href='{link}'><h2>{name}</h2><p>查看最新儀表板與分類報告</p></a>",
-        )
-    cards_html = "\n".join(cards) if cards else "<p class='empty'>目前尚未產生可發布報告。</p>"
+    # Sidebar vendor links
+    sidebar_vendor_links = "".join(
+        f'<a class="vendor-link" href="{link}">{name}</a>'
+        for name, link in vendor_links
+    ) if vendor_links else '<span class="vendor-link" style="opacity:.5">尚無廠商</span>'
 
+    # Main vendor cards
+    if vendor_links:
+        cards_html = "".join(
+            f'<a class="vendor-card" href="{link}">'
+            f'<div class="vendor-card-header"><div class="vendor-card-name">{name}</div>'
+            f'<div class="vendor-card-sub">查看儀表板與分類報告</div></div>'
+            f'<div class="vendor-card-arrow">→</div>'
+            f'</a>'
+            for name, link in vendor_links
+        )
+    else:
+        cards_html = "<p class='empty'>目前尚未產生可發布報告。</p>"
+
+    # Update history
     if update_items:
         update_html = "".join(
-            (
-                "<li>"
-          "<div class='timeline-head'>"
-          f"<strong>{title}</strong>"
-          f"<span>{date_text}</span>"
-          "</div>"
-                f"<p>{summary if summary else '（尚未填寫重點摘要）'}</p>"
-                "</li>"
-            )
+            f'<li class="tl-item">'
+            f'<span class="tl-time">{date_text}</span>'
+            f'<div class="tl-body"><strong>{title}</strong>'
+            f'{"<div class=tl-sub>" + summary + "</div>" if summary else ""}'
+            f'</div></li>'
             for title, date_text, summary in update_items
         )
     else:
-      update_html = "<li><div class='timeline-head'><strong>尚無版本紀錄</strong><span>請先建立 docs/ui-version-history.md</span></div><p>（尚未填寫重點摘要）</p></li>"
+        update_html = '<li class="tl-item"><span class="tl-time">—</span><div class="tl-body">尚無版本紀錄</div></li>'
 
     html = f"""<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>超級機器人大戰系列看板</title>
-  <style>
-    :root {{
-      --bg: #f3f7fa;
-      --panel: #ffffff;
-      --text: #1f2f3a;
-      --muted: #607785;
-      --brand: #1f7a6c;
-      --brand2: #255f88;
-      --line: #d6e1e8;
-      --shadow: 0 12px 30px rgba(20, 45, 60, 0.08);
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{
-      margin: 0;
-      font-family: "Noto Sans TC", "Microsoft JhengHei", sans-serif;
-      background:
-        radial-gradient(circle at 8% 8%, #d9ede8 0%, transparent 42%),
-        radial-gradient(circle at 90% 6%, #d8e8f5 0%, transparent 40%),
-        var(--bg);
-      color: var(--text);
-      padding: 20px 14px 28px;
-    }}
-    .shell {{
-      max-width: 1080px;
-      margin: 0 auto;
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 16px;
-      box-shadow: var(--shadow);
-      overflow: hidden;
-    }}
-    .hero {{
-      padding: 22px 24px;
-      color: #fff;
-      background: linear-gradient(120deg, var(--brand), var(--brand2));
-    }}
-    .hero h1 {{ margin: 0 0 6px; font-size: 1.8rem; }}
-    .hero p {{ margin: 0; opacity: 0.92; }}
-    .content {{ padding: 16px 18px 22px; }}
-    .grid {{
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 10px;
-      margin-bottom: 14px;
-    }}
-    .card {{
-      display: block;
-      text-decoration: none;
-      color: var(--text);
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      background: #f9fcff;
-      padding: 12px;
-    }}
-    .card:hover {{ background: #eef6fb; }}
-    .card h2 {{ margin: 0 0 4px; font-size: 1.2rem; color: #174556; }}
-    .card p {{ margin: 0; color: var(--muted); font-size: 0.92rem; }}
-    .empty {{
-      border: 1px dashed var(--line);
-      border-radius: 12px;
-      padding: 12px;
-      color: var(--muted);
-      background: #f8fbfd;
-    }}
-    .footer {{
-      margin-top: 8px;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      color: var(--muted);
-      font-size: 0.9rem;
-    }}
-    .panels {{
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-      margin-top: 10px;
-    }}
-    .panel {{
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      background: #f9fcff;
-      padding: 12px;
-    }}
-    .panel h3 {{ margin: 0 0 8px; color: #174556; }}
-    .timeline {{ list-style: none; margin: 0; padding: 0; }}
-    .timeline li {{
-      border-bottom: 1px solid #e5edf3;
-      padding: 7px 0;
-      font-size: 0.9rem;
-    }}
-    .timeline-head {{
-      display: inline-flex;
-      align-items: baseline;
-      gap: 8px;
-      flex-wrap: wrap;
-    }}
-    .timeline li:last-child {{ border-bottom: 0; }}
-    .timeline span {{ color: var(--muted); white-space: nowrap; }}
-    .timeline p {{
-      margin: 4px 0 0;
-      color: #36515f;
-      font-size: 0.88rem;
-    }}
-    .footer a, .panel a {{ color: #1d5a85; text-decoration: none; }}
-    .footer a:hover, .panel a:hover {{ text-decoration: underline; }}
-    @media (max-width: 860px) {{
-      .grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
-      .panels {{ grid-template-columns: 1fr; }}
-    }}
-    @media (max-width: 560px) {{
-      .grid {{ grid-template-columns: 1fr; }}
-      .hero h1 {{ font-size: 1.4rem; }}
-    }}
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>超級機器人大戰系列看板</title>
+<style>
+:root{{
+  --sidebar-bg:#13303a;--sidebar-hover:#1e4655;--sidebar-active:#2a7f6c;
+  --brand:#2a7f6c;--brand-2:#1e5f88;
+  --brand-grad:linear-gradient(120deg,var(--brand) 0%,var(--brand-2) 100%);
+  --page-bg:#f1f5f8;--card-bg:#fff;--card-border:#d7e3e8;
+  --card-shadow:0 2px 12px rgba(15,35,45,.07);
+  --card-shadow-hover:0 6px 24px rgba(15,35,45,.13);
+  --text:#1a2b34;--text-sub:#4d6168;--radius:16px;--radius-sm:10px;
+}}
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif;color:var(--text);background:var(--page-bg);line-height:1.7}}
+.layout{{display:grid;grid-template-columns:240px 1fr;min-height:100vh}}
+.sidebar{{background:var(--sidebar-bg);color:#c8dde5;position:sticky;top:0;height:100vh;overflow-y:auto;display:flex;flex-direction:column}}
+.sidebar-top{{padding:18px 16px 12px;border-bottom:1px solid rgba(255,255,255,.08)}}
+.sidebar-site{{font-size:1.05rem;font-weight:700;color:#e8f4f8;margin-bottom:2px}}
+.sidebar-sub{{font-size:.82rem;color:#80b0bd}}
+.sidebar-section-label{{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:#6090a0;padding:12px 16px 4px}}
+.vendor-link{{display:block;padding:7px 16px;color:#a8c8d5;text-decoration:none;font-size:.9rem;border-left:3px solid transparent;transition:all .15s ease}}
+.vendor-link:hover{{background:var(--sidebar-hover);color:#e8f4f8;border-left-color:var(--brand)}}
+.legal-link{{display:block;padding:5px 16px;color:#6a9aaa;text-decoration:none;font-size:.82rem;transition:color .12s}}
+.legal-link:hover{{color:#c8dde5}}
+.sidebar-footer{{margin-top:auto;padding:12px 16px;border-top:1px solid rgba(255,255,255,.08);font-size:.78rem;color:#5a8090}}
+.main{{padding:20px 22px 32px;max-width:900px}}
+.topbar{{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:16px}}
+.topbar-title{{font-size:1.35rem;font-weight:700;color:var(--text)}}
+.topbar-date{{font-size:.85rem;color:var(--text-sub)}}
+.vendor-grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:16px}}
+.vendor-card{{background:var(--card-bg);border:1px solid var(--card-border);border-radius:var(--radius);box-shadow:var(--card-shadow);overflow:hidden;transition:box-shadow .2s ease;text-decoration:none;color:var(--text);display:flex;align-items:stretch}}
+.vendor-card:hover{{box-shadow:var(--card-shadow-hover)}}
+.vendor-card-header{{flex:1;padding:14px 16px;background:var(--brand-grad);color:#fff}}
+.vendor-card-name{{font-size:1.15rem;font-weight:700}}
+.vendor-card-sub{{font-size:.83rem;opacity:.88;margin-top:3px}}
+.vendor-card-arrow{{display:flex;align-items:center;padding:0 16px;background:rgba(42,127,108,.08);color:var(--brand);font-size:1.3rem;font-weight:300}}
+.vendor-card:hover .vendor-card-arrow{{background:rgba(42,127,108,.16)}}
+.empty{{border:1px dashed var(--card-border);border-radius:var(--radius-sm);padding:14px;color:var(--text-sub);background:#f8fbfd}}
+.panels{{display:grid;grid-template-columns:1fr 1fr;gap:12px}}
+.panel{{background:var(--card-bg);border:1px solid var(--card-border);border-radius:var(--radius);box-shadow:var(--card-shadow);padding:14px 16px}}
+.panel-title{{font-size:.95rem;font-weight:700;color:#1b4b5a;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--card-border)}}
+.panel p{{font-size:.9rem;color:var(--text-sub);margin-bottom:6px}}
+.panel a{{color:#1d5a85;text-decoration:none}}
+.panel a:hover{{text-decoration:underline}}
+.tl-list{{list-style:none;display:grid;gap:7px}}
+.tl-item{{border:1px solid #dfe9ee;background:#f9fcfe;border-radius:var(--radius-sm);padding:8px 11px}}
+.tl-time{{display:block;color:#40616f;font-size:.78rem;margin-bottom:2px}}
+.tl-body{{font-size:.88rem}}
+.tl-sub{{color:#5f7680;font-size:.82rem;margin-top:2px}}
+.report-footer{{margin-top:12px;font-size:.82rem;color:#7a909a;text-align:center;padding:12px 0 0;border-top:1px solid var(--card-border)}}
+@media(max-width:780px){{
+  .layout{{grid-template-columns:1fr}}
+  .sidebar{{position:static;height:auto}}
+  .main{{padding:14px 12px 24px}}
+  .vendor-grid{{grid-template-columns:1fr}}
+  .panels{{grid-template-columns:1fr}}
+}}
+</style>
 </head>
 <body>
-  <main class="shell">
-    <header class="hero">
-      <h1>超級機器人大戰系列看板</h1>
-      <p>更新時間：{generated_at}</p>
-    </header>
-    <section class="content">
-      <div class="grid">
-        {cards_html}
-      </div>
-      <div class="footer">
-        <span>法務與風險：</span>
-        <a href="./legal/disclaimer.html">免責聲明</a>
-        <a href="./legal/privacy.html">隱私與資料說明</a>
-        <a href="./legal/risk-disclosure.html">風險揭露</a>
-      </div>
-      <div class="panels">
-        <section class="panel">
-          <h3>更新紀錄</h3>
-          <ul class="timeline">{update_html}</ul>
-        </section>
-        <section class="panel">
-          <h3>站務聯絡</h3>
-          <p>內容修正、下架請求、合作提案請來信：</p>
-          <p>{contact_html}</p>
-          <p>建議回報時附上頁面網址與問題描述，方便快速處理。</p>
-        </section>
-      </div>
-    </section>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="sidebar-top">
+      <div class="sidebar-site">系列看板</div>
+      <div class="sidebar-sub">超級機器人大戰</div>
+    </div>
+    <div class="sidebar-section-label">選擇廠商</div>
+    {sidebar_vendor_links}
+    <div class="sidebar-section-label">法務與風險</div>
+    <a class="legal-link" href="./legal/disclaimer.html">免責聲明</a>
+    <a class="legal-link" href="./legal/privacy.html">隱私與資料說明</a>
+    <a class="legal-link" href="./legal/risk-disclosure.html">風險揭露</a>
+    <div class="sidebar-footer">更新：{generated_at}</div>
+  </aside>
+  <main class="main">
+    <div class="topbar">
+      <div class="topbar-title">報告總覽</div>
+      <div class="topbar-date">資料更新：{generated_at}</div>
+    </div>
+    <div class="vendor-grid">
+      {cards_html}
+    </div>
+    <div class="panels">
+      <section class="panel">
+        <div class="panel-title">更新紀錄</div>
+        <ul class="tl-list">{update_html}</ul>
+      </section>
+      <section class="panel">
+        <div class="panel-title">站務聯絡</div>
+        <p>內容修正、下架請求、合作提案請來信：</p>
+        <p>{contact_html}</p>
+        <p>建議回報時附上頁面網址與問題描述，方便快速處理。</p>
+      </section>
+    </div>
+    <footer class="report-footer">超級機器人大戰系列看板 ｜ 自動產生於 {generated_at}</footer>
   </main>
+</div>
 </body>
 </html>
 """
