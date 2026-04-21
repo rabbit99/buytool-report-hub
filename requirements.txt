@@ -3,3 +3,7 @@ openpyxl>=3.1
 google-genai>=0.1
 python-dotenv>=1.0
 markdown>=3.6
+pyperclip>=1.8
+pywinauto>=0.6
+pyautogui>=0.9
+Pillow>=10.0

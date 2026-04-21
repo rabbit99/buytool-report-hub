@@ -3,6 +3,11 @@
   "version": "1.0.0",
   "description": "LINE Chat Analysis & Report Generator",
   "scripts": {
+    "line:export": ".\\.venv\\Scripts\\python.exe scripts\\export_line_chat.py --all",
+    "line:export:tokko": ".\\.venv\\Scripts\\python.exe scripts\\export_line_chat.py --group 特工",
+    "line:export:bear": ".\\.venv\\Scripts\\python.exe scripts\\export_line_chat.py --group 機器熊",
+    "line:export:trade": ".\\.venv\\Scripts\\python.exe scripts\\export_line_chat.py --group 交易群",
+    "line:full": "npm run line:export && npm run update:ai && npm run release:mvp:ai",
     "ingest": ".\\.venv\\Scripts\\python.exe ingest.py --all",
     "ingest:force": ".\\.venv\\Scripts\\python.exe ingest.py --all --force",
     "report": ".\\.venv\\Scripts\\python.exe gen_report.py --all --html",
