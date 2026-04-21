@@ -407,15 +407,17 @@ def _compute_sub_analyses(
         quotes = _pick_informative(_deduplicate(recs), max_items=5)
 
         ai_result = None
-        if analyze and _ANALYZER_AVAILABLE and ai_cache is not None:
+        if _ANALYZER_AVAILABLE and ai_cache is not None:
             cache_key = f'{cat_file}:{sub}'
             jsonl_mtime = jsonl_path.stat().st_mtime if jsonl_path and jsonl_path.exists() else 0
             cached = ai_cache.get(cache_key)
             if cached and cached.get('jsonl_mtime') == jsonl_mtime:
+                # 快取命中：無論是否 --analyze 都直接使用
                 ai_result = cached['result']
                 logger.info(f'[快取命中] {cache_key}')
                 print(f'      ↩ AI 快取命中：{cache_key}')
-            else:
+            elif analyze:
+                # 僅在 --analyze 時才發出新的 API 請求
                 messages = [r.get('content', '') for r in quotes if r.get('content')]
                 if messages:
                     logger.info(f'[AI 請求] {cache_key}（首次分析）')
@@ -576,7 +578,8 @@ def generate_reports(vendor_name, html=False, analyze=False):
     generated = 0
 
     # 載入 AI 快取（整個廠商共用）
-    ai_cache = _ai_cache_load(spec_dir) if analyze and _ANALYZER_AVAILABLE else {}
+    # 即使不重新分析，也讀取快取來顯示已有的 AI 結果
+    ai_cache = _ai_cache_load(spec_dir) if _ANALYZER_AVAILABLE else {}
 
     for cat_file, cat_title in CATEGORIES:
         jsonl_path = spec_dir / f'{cat_file}.jsonl'
