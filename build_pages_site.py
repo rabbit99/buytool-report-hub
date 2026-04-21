@@ -12,7 +12,7 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from vendor_config import list_vendors
+from vendor_config import list_publish_vendors
 
 ROOT = Path(__file__).resolve().parent
 REPORTS_DIR = ROOT / "reports"
@@ -28,16 +28,17 @@ def _clean_output() -> None:
 
 
 def _copy_vendor_reports() -> list[tuple[str, str]]:
-    links: list[tuple[str, str]] = []
-    for vendor in list_vendors():
-        src = REPORTS_DIR / vendor
-        if not src.exists():
-            continue
-        dst = OUT_DIR / vendor
-        shutil.copytree(src, dst)
-        if (dst / "00_總覽.html").exists():
-            links.append((vendor, f"./{vendor}/00_總覽.html"))
-    return links
+  links: list[tuple[str, str]] = []
+  for vendor in list_publish_vendors():
+    src = REPORTS_DIR / vendor
+    if not src.exists():
+      continue
+
+    dst = OUT_DIR / vendor
+    shutil.copytree(src, dst)
+    if (dst / "00_總覽.html").exists():
+      links.append((vendor, f"./{vendor}/00_總覽.html"))
+  return links
 
 
 def _copy_static_assets() -> None:
@@ -51,21 +52,37 @@ def _copy_static_assets() -> None:
             shutil.copy2(item, target)
 
 
-def _load_update_history(max_items: int = 5) -> list[tuple[str, str]]:
-    """Read version headlines from ui-version-history markdown."""
+def _load_update_history(max_items: int = 5) -> list[tuple[str, str, str]]:
+    """Read compact version timeline from ui-version-history markdown."""
     if not UI_HISTORY_PATH.exists():
         return []
 
-    entries: list[tuple[str, str]] = []
-    for line in UI_HISTORY_PATH.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
+    lines = UI_HISTORY_PATH.read_text(encoding="utf-8").splitlines()
+    entries: list[tuple[str, str, str]] = []
+
+    for idx, raw in enumerate(lines):
+        line = raw.strip()
         if not line.startswith("## "):
             continue
+
         title = line[3:].strip()
         date_match = re.search(r"\(([^)]+)\)", title)
         date_text = date_match.group(1) if date_match else ""
         clean_title = re.sub(r"\s*\([^)]+\)", "", title).strip()
-        entries.append((clean_title, date_text))
+
+        version_match = re.search(r"v\d+\.\d+\.\d+", clean_title)
+        display_version = version_match.group(0) if version_match else clean_title
+
+        summary = ""
+        for next_line in lines[idx + 1 :]:
+            next_line = next_line.strip()
+            if next_line.startswith("## "):
+                break
+            if next_line.startswith("- "):
+                summary = next_line[2:].strip().rstrip(".")
+                break
+
+        entries.append((display_version, date_text, summary))
         if len(entries) >= max_items:
             break
     return entries
@@ -99,8 +116,13 @@ def _build_sitemap_content(base_url: str, paths: list[str]) -> str:
 
 
 def _write_index(vendor_links: list[tuple[str, str]]) -> None:
-    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
-    contact_email = os.getenv("PUBLIC_CONTACT_EMAIL", "contact@example.com")
+    generated_at = datetime.now().strftime("%Y-%m-%d")
+    contact_email = os.getenv("PUBLIC_CONTACT_EMAIL", "未設定，請於 Repository Variables 設定 PUBLIC_CONTACT_EMAIL")
+    contact_html = (
+        f'<a href="mailto:{contact_email}">{contact_email}</a>'
+        if "@" in contact_email
+        else contact_email
+    )
     update_items = _load_update_history()
 
     cards = []
@@ -112,18 +134,26 @@ def _write_index(vendor_links: list[tuple[str, str]]) -> None:
 
     if update_items:
         update_html = "".join(
-            f"<li><strong>{title}</strong><span>{date_text}</span></li>"
-            for title, date_text in update_items
+            (
+                "<li>"
+          "<div class='timeline-head'>"
+          f"<strong>{title}</strong>"
+          f"<span>{date_text}</span>"
+          "</div>"
+                f"<p>{summary if summary else '（尚未填寫重點摘要）'}</p>"
+                "</li>"
+            )
+            for title, date_text, summary in update_items
         )
     else:
-        update_html = "<li><strong>尚無版本紀錄</strong><span>請先建立 docs/ui-version-history.md</span></li>"
+      update_html = "<li><div class='timeline-head'><strong>尚無版本紀錄</strong><span>請先建立 docs/ui-version-history.md</span></div><p>（尚未填寫重點摘要）</p></li>"
 
     html = f"""<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>BuyTool 公開報告中心</title>
+  <title>超級機器人大戰系列看板</title>
   <style>
     :root {{
       --bg: #f3f7fa;
@@ -211,15 +241,23 @@ def _write_index(vendor_links: list[tuple[str, str]]) -> None:
     .panel h3 {{ margin: 0 0 8px; color: #174556; }}
     .timeline {{ list-style: none; margin: 0; padding: 0; }}
     .timeline li {{
-      display: flex;
-      justify-content: space-between;
-      gap: 8px;
       border-bottom: 1px solid #e5edf3;
-      padding: 6px 0;
+      padding: 7px 0;
       font-size: 0.9rem;
+    }}
+    .timeline-head {{
+      display: inline-flex;
+      align-items: baseline;
+      gap: 8px;
+      flex-wrap: wrap;
     }}
     .timeline li:last-child {{ border-bottom: 0; }}
     .timeline span {{ color: var(--muted); white-space: nowrap; }}
+    .timeline p {{
+      margin: 4px 0 0;
+      color: #36515f;
+      font-size: 0.88rem;
+    }}
     .footer a, .panel a {{ color: #1d5a85; text-decoration: none; }}
     .footer a:hover, .panel a:hover {{ text-decoration: underline; }}
     @media (max-width: 860px) {{
@@ -235,8 +273,8 @@ def _write_index(vendor_links: list[tuple[str, str]]) -> None:
 <body>
   <main class="shell">
     <header class="hero">
-      <h1>BuyTool 公開報告中心</h1>
-      <p>更新時間：{generated_at}（由 release 分支自動部署）</p>
+      <h1>超級機器人大戰系列看板</h1>
+      <p>更新時間：{generated_at}</p>
     </header>
     <section class="content">
       <div class="grid">
@@ -256,7 +294,7 @@ def _write_index(vendor_links: list[tuple[str, str]]) -> None:
         <section class="panel">
           <h3>站務聯絡</h3>
           <p>內容修正、下架請求、合作提案請來信：</p>
-          <p><a href="mailto:{contact_email}">{contact_email}</a></p>
+          <p>{contact_html}</p>
           <p>建議回報時附上頁面網址與問題描述，方便快速處理。</p>
         </section>
       </div>

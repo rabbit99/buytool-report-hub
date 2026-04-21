@@ -12,6 +12,7 @@
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
+PUBLISH_EXCLUDED_VENDORS = {'交易群'}
 
 # ── 廠商設定 ────────────────────────────────────────────────────
 
@@ -93,3 +94,8 @@ def get_vendor(name):
 def list_vendors():
     """列出所有可用廠商名稱。"""
     return list(VENDORS.keys())
+
+
+def list_publish_vendors():
+    """列出允許進入公開站點的廠商名稱。"""
+    return [name for name in VENDORS.keys() if name not in PUBLISH_EXCLUDED_VENDORS]
