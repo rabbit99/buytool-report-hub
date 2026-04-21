@@ -14,11 +14,53 @@ import json
 import html as html_lib
 import argparse
 import sys
+import logging
 from pathlib import Path
 from collections import defaultdict, Counter
 from datetime import datetime
 
-from vendor_config import get_vendor, list_vendors
+from vendor_config import get_vendor, list_vendors, list_publish_vendors
+
+# ── Logger 設定 ───────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    handlers=[
+        logging.FileHandler('analyzer.log', encoding='utf-8'),
+        logging.StreamHandler(sys.stdout),
+    ]
+)
+logger = logging.getLogger('gen_report')
+
+# ── AI 快取（spec/<vendor>/_ai_cache.json）──────────────────────
+_AI_CACHE_FILE = '_ai_cache.json'
+
+
+def _ai_cache_load(spec_dir: Path) -> dict:
+    """讀取 AI 分析快取。快取不存在時回傳空 dict。"""
+    cache_path = spec_dir / _AI_CACHE_FILE
+    if cache_path.exists():
+        try:
+            with open(cache_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            logger.info(f'[快取讀取] {cache_path}，共 {len(data)} 筆')
+            return data
+        except Exception as e:
+            logger.warning(f'[快取讀取失敗] {cache_path}：{e}，返回空快取')
+    return {}
+
+
+def _ai_cache_save(spec_dir: Path, cache: dict) -> None:
+    """寫回 AI 分析快取。"""
+    cache_path = spec_dir / _AI_CACHE_FILE
+    try:
+        with open(cache_path, 'w', encoding='utf-8') as f:
+            json.dump(cache, f, ensure_ascii=False, indent=2)
+        logger.info(f'[快取寫入] {cache_path}，共 {len(cache)} 筆')
+    except Exception as e:
+        logger.error(f'[快取寫入失敗] {cache_path}：{e}', exc_info=True)
+
 
 # 嘗試導入 message_analyzer（若 API key 未設定會失敗，但不中斷）
 try:
@@ -27,6 +69,7 @@ try:
 except Exception as e:
     _ANALYZER_AVAILABLE = False
     _ANALYZER_ERROR = str(e)
+    logger.warning(f'[AI 模組載入失敗] {e}')
 
 # ── 分類檔名 & 標題 ────────────────────────────────────────────
 CATEGORIES = [
@@ -237,11 +280,10 @@ def _build_numeric_signal_lines(data_points, max_items=5):
 
 
 def _build_observation_summary(sub_name, analysis, meaningful_entities):
-    """生成去識別的觀點摘要，避免輸出可追溯原句。"""
-    unique = analysis['unique']
+    """輸出實際有價值的資訊片段，讓讀者直接知道具體條件與結果。"""
+    insights = analysis.get('insights', [])
     speakers = analysis['speakers']
     question_count = analysis['question_count']
-    declarative_count = max(0, unique - question_count)
 
     if speakers >= 10:
         speaker_label = '多數參與者'
@@ -250,20 +292,25 @@ def _build_observation_summary(sub_name, analysis, meaningful_entities):
     else:
         speaker_label = '少數參與者'
 
-    lines = [
-        (
-            f'- {speaker_label}在「{sub_name}」議題提供 {declarative_count} 則敘述型訊號，'
-            f'提問型訊號 {question_count} 則，顯示社群以經驗回報為主。'
-        ),
-    ]
+    lines = []
 
-    if meaningful_entities:
-        top_entities = '、'.join(entity for entity, _ in meaningful_entities[:3])
-        lines.append(f'- 討論焦點集中在 {top_entities}，屬於此主題下的高頻關鍵面向。')
+    # 輸出實際資訊性內容（非問句），讓讀者看到真實的群友說法
+    if insights:
+        for r in insights[:6]:
+            content = _format_quote(r.get('content', ''), max_len=120)
+            if content:
+                lines.append(f'- 「{content}」')
 
-    numeric_lines = _build_numeric_signal_lines(analysis['data_points'], max_items=2)
-    if numeric_lines:
-        lines.append('- 數值訊號顯示此議題具有可量化討論，可作為後續策略與風險評估依據。')
+    # 若沒有實質內容，才回退到統計摘要
+    if not lines:
+        declarative_count = max(0, analysis['unique'] - question_count)
+        lines.append(
+            f'- {speaker_label}在「{sub_name}」議題提供 {declarative_count} 則討論，'
+            f'提問型訊號 {question_count} 則。'
+        )
+        if meaningful_entities:
+            top_entities = '、'.join(entity for entity, _ in meaningful_entities[:3])
+            lines.append(f'- 討論焦點：{top_entities}')
 
     return lines
 
@@ -310,12 +357,20 @@ def _analyze_subcategory(sub_name, records):
 
 # ── 報告產生器 ──────────────────────────────────────────────────
 
-def _generate_category_report(vendor_name, cat_file, cat_title, records, date_range, analyze=False):
+def _generate_category_report(
+    vendor_name, cat_file, cat_title, records, date_range,
+    analyze=False, jsonl_path=None, ai_cache=None,
+):
     """產生單一分類的 Markdown 報告（分析總結式）。
-    
+
     Args:
-        analyze: 若 True，使用 Gemini AI 分析群友經驗與觀點（消耗 token）
+        analyze:    若 True，使用 Gemini AI 分析（消耗 token）
+        jsonl_path: 對應的 JSONL 來源路徑，用於快取 mtime 比對
+        ai_cache:   可變 dict，供快取讀寫（由 generate_reports 傳入並在結束後儲存）
     """
+    if ai_cache is None:
+        ai_cache = {}
+    jsonl_mtime = jsonl_path.stat().st_mtime if jsonl_path and jsonl_path.exists() else None
     grouped = _group_by_sub(records)
     total = len(records)
     all_speakers = set(r.get('nickname', '') for r in records if r.get('nickname'))
@@ -378,22 +433,44 @@ def _generate_category_report(vendor_name, cat_file, cat_title, records, date_ra
             lines.append(line)
 
         if analyze and _ANALYZER_AVAILABLE:
-            ai_prompt_lines = [
-                f'子分類：{sub}',
-                f'不重複訊息：{analysis["unique"]}',
-                f'參與者：{analysis["speakers"]}',
-                f'提問訊號：{analysis["question_count"]}',
-                f'高頻關鍵字：{"、".join(e for e, _ in meaningful_entities[:5]) or "無"}',
-            ]
-            result = analyze_messages_batch(
-                vendor_name,
-                cat_title,
-                sub,
-                ai_prompt_lines,
-                speaker_count=analysis['speakers'],
-            )
-            if result.get('status') == 'success' and result.get('analysis'):
-                lines.append(f'- AI 補充判讀：{result["analysis"]}')
+            cache_key = f'{cat_file}:{sub}'
+            cached = ai_cache.get(cache_key, {})
+            cached_mtime = cached.get('jsonl_mtime')
+
+            if jsonl_mtime is not None and cached_mtime == jsonl_mtime and cached.get('result'):
+                # JSONL 未變動，直接使用快取結果
+                result = cached['result']
+                print(f'      ↩ AI 快取命中：{cache_key}')
+                logger.info(f'[快取命中] {cache_key}')
+            else:
+                reason = '首次分析' if not cached else 'JSONL 已更新'
+                logger.info(f'[AI 請求] {cache_key}（{reason}）')
+                # JSONL 有更新（或首次），送出 AI 請求
+                all_informative = _pick_informative(_deduplicate(recs), max_items=20)
+                real_messages = [r.get('content', '') for r in all_informative if r.get('content')]
+                result = analyze_messages_batch(
+                    vendor_name,
+                    cat_title,
+                    sub,
+                    real_messages,
+                    speaker_count=analysis['speakers'],
+                )
+                # 寫入快取（只快取成功結果）
+                if result.get('status') == 'success':
+                    ai_cache[cache_key] = {
+                        'jsonl_mtime': jsonl_mtime,
+                        'result': result,
+                    }
+                else:
+                    logger.warning(f'[快取未寫入] {cache_key}，AI status={result.get("status")}，訊息：{result.get("analysis", "")[:60]}')
+
+            if result.get('status') == 'success':
+                if result.get('title'):
+                    lines.append(f'\n**{result["title"]}**\n')
+                if result.get('analysis'):
+                    lines.append(result['analysis'])
+                if result.get('supplement'):
+                    lines.append(f'\n> {result["supplement"]}')
             lines.append('')
 
         # 收集子分類摘要
@@ -460,6 +537,8 @@ def generate_reports(vendor_name, html=False, analyze=False):
     meta = _load_meta(spec_dir)
     generated = 0
 
+    ai_cache = _ai_cache_load(spec_dir) if analyze else {}
+
     for cat_file, cat_title in CATEGORIES:
         jsonl_path = spec_dir / f'{cat_file}.jsonl'
         records = _load_jsonl(jsonl_path)
@@ -469,7 +548,8 @@ def generate_reports(vendor_name, html=False, analyze=False):
 
         date_range = _date_range_str(records)
         md_content = _generate_category_report(
-            vendor_cfg['name'], cat_file, cat_title, records, date_range, analyze=analyze,
+            vendor_cfg['name'], cat_file, cat_title, records, date_range,
+            analyze=analyze, jsonl_path=jsonl_path, ai_cache=ai_cache,
         )
 
         # 寫入 Markdown
@@ -496,6 +576,10 @@ def generate_reports(vendor_name, html=False, analyze=False):
 
     # 產生總覽摘要
     _generate_overview(vendor_cfg, spec_dir, report_dir, html=html)
+
+    # 儲存 AI 快取（只在 analyze 模式且有更新時寫入）
+    if analyze:
+        _ai_cache_save(spec_dir, ai_cache)
 
     print(f'  ── 共產生 {generated} 份報告')
 
@@ -571,7 +655,7 @@ def _generate_overview_dashboard_html(vendor_cfg, report_dir, meta, category_sta
     )
 
     switch_buttons = []
-    for vname in list_vendors():
+    for vname in list_publish_vendors():
         vcfg = get_vendor(vname)
         active = " is-active" if vname == vendor_cfg['name'] else ""
         href = f"../{vname}/00_總覽.html"

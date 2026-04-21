@@ -5,9 +5,14 @@ message_analyzer.py
 
 import os
 import json
+import logging
 from typing import List, Dict, Optional
 import google.genai as genai
 from dotenv import load_dotenv
+
+# ── Logger ───────────────────────────────────────────────────
+# 不在此設定 handler，由呼叫端（gen_report.py 或命令列）統一配置
+logger = logging.getLogger('message_analyzer')
 
 # 載入 .env
 load_dotenv()
@@ -19,8 +24,9 @@ if not API_KEY:
 
 client = genai.Client(api_key=API_KEY)
 
-# 使用 Gemini 2.0 Flash 模型（快速且便宜）
-MODEL = "gemini-2.0-flash"
+# 使用 Gemini 2.5 Flash 模型
+MODEL = "gemini-2.5-flash"
+logger.info(f'message_analyzer 初始化完成，使用模型：{MODEL}')
 
 
 def analyze_messages_batch(
@@ -71,33 +77,42 @@ def analyze_messages_batch(
     
     # 構建 Gemini 提示
     speaker_desc = f"{speaker_count} 人" if speaker_count else "多人"
-    
-    prompt = f"""根據以下 LINE 群組訊息，進行新聞記者式的客觀分析。
+
+    prompt = f"""你是天堂經典版遊戲的情報分析師。根據以下 LINE 群組的真實訊息，提取**對玩家有直接幫助的具體情報**。
 
 群組: {group_name}
 分類: {category}
 子分類: {subcategory}
-提及人數: {speaker_desc}
+發言人數: {speaker_desc}
 
-訊息列表:
-{chr(10).join(f'- {msg}' for msg in filtered_msgs[:20])}
+原始訊息（共 {len(filtered_msgs)} 則）:
+{chr(10).join(f'- {msg}' for msg in filtered_msgs[:25])}
 
-請按照以下格式輸出（JSON 格式）：
+---
+
+**你的任務是從上述訊息中，提取以下類型的具體情報：**
+
+- 「在哪裡（地點）掛機 → 有什麼收益（天幣/小時或一天）」
+- 「需要什麼條件（職業、裝備等級 AC/防武、消耗品）才能在某地點掛」
+- 「哪個職業、哪種配置在哪個地點效率最好」
+- 「實際玩家測試的數據：X 小時賺 Y 萬、需要 AC Z 以上」
+- 任何其他可以幫助玩家決策的具體事實
+
+如果訊息中有這類資訊，請整理成清楚、可操作的條目。
+如果訊息中沒有具體條件或數字，請如實反映，不要捏造。
+
+輸出格式（JSON）：
 {{
-    "title": "一句話概括議題",
-    "analysis": "客觀新聞體段落（1-3句，包含人數、具體事實、相關條件）",
-    "supplement": "補充說明（可選，用於對立意見或待驗證部分。如無則留空）"
+    "title": "一句話概括這批訊息的核心情報",
+    "analysis": "具體情報整理，每條一行，格式如：\\n• [地點/條件] + [職業/裝備] → [結果/收益]\\n例：• 墮落地點，體妖精 AC100+，每小時約 5~8 萬天幣（多人回報）\\n若無具體數據則寫出群友的實際說法摘要",
+    "supplement": "補充：意見分歧處、尚待驗證的說法、或重要注意事項。無則留空"
 }}
 
-要求:
-1. 避免使用「我認為」、「應該」等主觀詞彙
-2. 人數量化：2-3人→「少數」，4-10人→「部分」，10+人→「多數」
-3. 優先突出具體數字、時間、條件
-4. 平衡呈現不同聲音
-5. 合理標註不確定性
-
-僅輸出 JSON，不包含其他文字。"""
+僅輸出 JSON，不含其他文字。"""
     
+    key = f'{group_name}/{category}/{subcategory}'
+    logger.info(f'[AI 呼叫] {key}，訊息數={len(filtered_msgs)}，模型={MODEL}')
+
     try:
         response = client.models.generate_content(
             model=MODEL,
@@ -120,13 +135,20 @@ def analyze_messages_batch(
                         result_text = result_text[4:]
                 
                 parsed = json.loads(result_text)
+                analysis = parsed.get('analysis', '')
+                # AI 有時回傳 list，統一轉為字串
+                if isinstance(analysis, list):
+                    logger.warning(f'[AI 回傳格式異常] {key}：analysis 為 list，已自動轉換為字串')
+                    analysis = '\n'.join(str(item) for item in analysis)
+                logger.info(f'[AI 成功] {key}，標題：{parsed.get("title", "")[:30]}')
                 return {
                     'title': parsed.get('title', ''),
-                    'analysis': parsed.get('analysis', ''),
+                    'analysis': analysis,
                     'supplement': parsed.get('supplement', ''),
                     'status': 'success'
                 }
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as je:
+                logger.warning(f'[AI JSON 解析失敗] {key}：{je}，降級使用純文字回應')
                 # 降級處理：直接使用回應文本
                 return {
                     'title': subcategory,
@@ -135,6 +157,7 @@ def analyze_messages_batch(
                     'status': 'success'
                 }
         else:
+            logger.warning(f'[AI 無回應] {key}：response.text 為空')
             return {
                 'title': '',
                 'analysis': '（無回應）',
@@ -143,6 +166,7 @@ def analyze_messages_batch(
             }
     
     except Exception as e:
+        logger.error(f'[AI 呼叫失敗] {key}，模型={MODEL}，錯誤：{e}', exc_info=True)
         return {
             'title': '',
             'analysis': f'（分析錯誤: {str(e)[:50]}）',
