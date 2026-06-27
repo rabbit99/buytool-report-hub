@@ -327,7 +327,7 @@ def _write_404() -> None:
 
 
 def _write_robots_and_sitemap(vendor_links: list[tuple[str, str]]) -> None:
-    base_url = os.getenv("SITE_BASE_URL", "https://example.github.io/BuyTool")
+    base_url = os.getenv("SITE_BASE_URL", "https://rabbit99.github.io/buytool-report-hub")
     paths = [
         "index.html",
         "404.html",
